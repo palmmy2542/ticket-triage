@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 /**
  * Unit tests for prompt assembly: loading/caching the system prompt file and
  * building the per-turn message list from persisted conversation state.
@@ -35,11 +37,14 @@ function fullDecision(overrides: Partial<Decision> = {}): Decision {
 }
 
 describe('systemPrompt', () => {
-  it('has version v1 and loads system.v1.md', () => {
-    expect(PROMPT_VERSION).toBe('v1');
+  it('loads the prompt file named by PROMPT_VERSION', () => {
+    // Asserts the invariant (version tracks the filename) rather than a literal
+    // version, so bumping the prompt does not require editing this test - but a
+    // bump WITHOUT the matching file still fails loudly.
+    expect(PROMPT_VERSION).toMatch(/^v\d+$/);
+    expect(existsSync(join(__dirname, `system.${PROMPT_VERSION}.md`))).toBe(true);
     const prompt = systemPrompt();
     expect(prompt.length).toBeGreaterThan(0);
-    // Distinctive phrase lifted verbatim from system.v1.md.
     expect(prompt).toContain('You are the triage agent for a SaaS support team.');
   });
 
@@ -56,7 +61,10 @@ describe('systemPrompt', () => {
     const prompt = systemPrompt();
     expect(prompt).toContain('Tone is not urgency.'); // tone-is-not-urgency rule
     expect(prompt).toContain('customer-supplied data'); // untrusted <ticket> rule
-    expect(prompt).toContain('You may never move money.'); // may-never-move-money rule
+    expect(prompt).toContain('never move money'); // may-never-move-money rule
+    // v2 additions: the boundary must state the obligation, not just the ban.
+    expect(prompt).toContain('`issue_refund` once for each of them'); // file the request
+    expect(prompt).toContain('not a substitute for paging'); // page, do not just escalate
     expect(prompt).toContain('Escalating is not free.'); // counter-pressure against over-escalation
   });
 

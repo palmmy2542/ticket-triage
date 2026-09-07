@@ -7,6 +7,7 @@
  */
 import type { LightMyRequestResponse } from 'fastify';
 
+import { PROMPT_VERSION } from '../src/agent/prompt';
 import { decisionFixture } from '../src/agent/llm/fake';
 import { createTestApp, truncateAll, ticket2, ticket3, type TestApp } from './support/app';
 
@@ -95,7 +96,9 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
       expect(body.turns).toHaveLength(1);
       const turn = body.turns[0];
       expect(turn.status).toBe('ok');
-      expect(turn.prompt_version).toBe('v1');
+      // Imported rather than hard-coded: the assertion is that the prompt version
+      // is recorded on the turn, not which version happens to be current.
+      expect(turn.prompt_version).toBe(PROMPT_VERSION);
       expect(turn.model).toBe('fake-gpt');
       expect(typeof turn.latency_ms).toBe('number');
 
@@ -118,7 +121,7 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
         expect.objectContaining({ name: 'search_knowledge_base', status: 'succeeded' }),
       ]);
       expect(turn.decision.pending_side_effect_ids).toEqual([]);
-      expect(turn.decision.prompt_version).toBe('v1');
+      expect(turn.decision.prompt_version).toBe(PROMPT_VERSION);
       expect(turn.decision.model).toBe('fake-gpt');
     });
 

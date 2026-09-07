@@ -30,11 +30,18 @@ const Args = z.strictObject({
 export function createOpenIncidentTool(config: MockToolConfig): ToolDescriptor<z.infer<typeof Args>> {
   return {
     name: 'open_incident',
+    // The description is what the model reads at the moment it decides, so the
+    // obligation belongs here and not only in the system prompt. Live eval runs
+    // showed the model confirming a regional outage in its rationale and then
+    // escalating to a human WITHOUT paging - it read "use only when" as a reason
+    // to defer, and treated incident management as the job of whoever picks up
+    // the escalation. Escalation is a queue; it does not wake anyone up.
     description:
-      'Open a platform incident and page the on-call engineer for a region. Use only when evidence ' +
-      'shows multi-user or region-wide impact - for example degraded regional probe data plus ' +
-      'several independent reports. One incident per region: calling it again for the same region ' +
-      'returns the existing incident instead of paging a second time.',
+      'Open a platform incident and page the on-call engineer for a region. Call this whenever ' +
+      'regional probe data shows a degraded or failing region and more than one person on the ' +
+      'account is affected. Do not defer it to the humans you escalate to: escalation only files ' +
+      'a ticket, while this is what actually pages an engineer. One incident per region - calling ' +
+      'it again for the same region returns the existing incident instead of paging twice.',
     args: Args,
     autonomy: 'auto',
     sideEffecting: true,

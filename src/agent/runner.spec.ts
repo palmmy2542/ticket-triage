@@ -7,6 +7,7 @@
  * trail. Model *quality* is measured separately by the eval harness.
  */
 import { decisionFixture, FakeLlm, timeoutError, type FakeStep } from './llm/fake';
+import { PROMPT_VERSION } from './prompt';
 import { runTurn } from './runner';
 import { createToolRegistry } from './tools/registry';
 import { InMemorySideEffectStore, RecordingLogger } from './testing/in-memory-side-effect-store';
@@ -495,7 +496,9 @@ describe('runTurn - audit trail', () => {
       now: NOW,
       ...h,
     });
-    expect(result.decision.prompt_version).toBe('v1');
+    // Imported, not hard-coded: the point of the assertion is that the version
+    // is recorded on the decision at all.
+    expect(result.decision.prompt_version).toBe(PROMPT_VERSION);
     expect(result.decision.model).toBe('fake-gpt');
   });
 });
