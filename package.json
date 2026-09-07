@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest --selectProjects unit",
-    "test:e2e": "jest --selectProjects e2e",
+    "test:e2e": "jest --selectProjects e2e --runInBand",
     "eval": "node --env-file-if-exists=.env -r ts-node/register eval/run.ts"
   },
   "dependencies": {
