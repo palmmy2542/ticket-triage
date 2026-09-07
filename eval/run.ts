@@ -490,7 +490,11 @@ async function main(): Promise<void> {
     runs,
   };
 
-  const file = join(__dirname, 'results', `${new Date().toISOString().replace(/[:.]/g, '-')}-${model}.json`);
+  // The judge model goes in the filename too: two reports for the same triage
+  // model judged by different models are different experiments.
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const suffix = judge ? `${model}-judged-by-${judgeModel}` : model;
+  const file = join(__dirname, 'results', `${stamp}-${suffix}.json`);
   writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`\n  report: ${file.replace(process.cwd(), '.')}\n`);
 
