@@ -205,7 +205,7 @@ export class SideEffectsService {
       data: { status: 'executing' },
     });
 
-    if (claimed.count === 0) return this.explainFailedClaim(conversationId, id);
+    if (claimed.count === 0) return this.explainFailedClaim(conversationId, id, 'approve');
 
     const row = await this.prisma.sideEffect.findUniqueOrThrow({ where: { id } });
     const tool = registry.get(row.toolName);
@@ -252,16 +252,10 @@ export class SideEffectsService {
       data: { status: 'rejected' },
     });
 
+    // Lost the claim: either it is already rejected (idempotent, return it) or
+    // it is in another state, which explainFailedClaim turns into a conflict.
     if (rejected.count === 0) {
-      const { side_effect, replayed } = await this.explainFailedClaim(conversationId, id);
-      // A second reject is idempotent; anything else is a genuine conflict.
-      if (side_effect.status === 'rejected') return { side_effect };
-      if (replayed) {
-        throw new ConflictException({
-          code: 'side_effect_already_executed',
-          message: 'This action was already executed and cannot be rejected',
-        });
-      }
+      const { side_effect } = await this.explainFailedClaim(conversationId, id, 'reject');
       return { side_effect };
     }
 
@@ -270,10 +264,19 @@ export class SideEffectsService {
     return { side_effect: toSideEffectResponse(row) };
   }
 
-  /** Turn a lost race into the right HTTP answer. */
+  /**
+   * Turn a lost conditional UPDATE into the right HTTP answer.
+   *
+   * The answer depends on what the caller was trying to do, which is why
+   * `intent` is a parameter rather than being inferred from the row: repeating
+   * a decision that already happened is idempotent, but reversing one is a
+   * conflict. Approving an action a human already rejected must never look like
+   * success.
+   */
   private async explainFailedClaim(
     conversationId: string,
     id: string,
+    intent: 'approve' | 'reject',
   ): Promise<{ side_effect: SideEffectResponse; replayed: boolean }> {
     const row = await this.prisma.sideEffect.findUnique({ where: { id } });
 
@@ -284,19 +287,37 @@ export class SideEffectsService {
       });
     }
 
+    const response = toSideEffectResponse(row);
+
     switch (row.status) {
       case 'succeeded':
       case 'failed':
-        // Already done: replay the stored outcome. This is what makes a retried
-        // approval safe rather than a second refund.
-        return { side_effect: toSideEffectResponse(row), replayed: true };
+        if (intent === 'reject') {
+          throw new ConflictException({
+            code: 'side_effect_already_executed',
+            message: 'This action was already executed and cannot be rejected',
+          });
+        }
+        // Already executed: replay the stored outcome. This is what makes a
+        // retried approval safe rather than a second refund.
+        return { side_effect: response, replayed: true };
+
       case 'executing':
         throw new ConflictException({
           code: 'side_effect_in_progress',
           message: 'This action is currently executing',
         });
+
       case 'rejected':
-        return { side_effect: toSideEffectResponse(row), replayed: false };
+        if (intent === 'approve') {
+          throw new ConflictException({
+            code: 'side_effect_rejected',
+            message: 'A human rejected this action; it cannot be approved',
+          });
+        }
+        // Rejecting an already-rejected action is a no-op, not an error.
+        return { side_effect: response, replayed: false };
+
       default:
         throw new ConflictException({
           code: 'side_effect_invalid_state',

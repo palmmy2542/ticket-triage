@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 
 import { ZodBody } from '../common/zod-validation.pipe';
 import { ConversationService } from './conversation.service';
@@ -37,6 +46,7 @@ export class ConversationsController {
    * handed the stored result (`replayed: true`) rather than a second refund.
    */
   @Post(':id/side-effects/:sideEffectId/approve')
+  @HttpCode(HttpStatus.OK)
   approve(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('sideEffectId', ParseUUIDPipe) sideEffectId: string,
@@ -47,6 +57,7 @@ export class ConversationsController {
   }
 
   @Post(':id/side-effects/:sideEffectId/reject')
+  @HttpCode(HttpStatus.OK)
   reject(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('sideEffectId', ParseUUIDPipe) sideEffectId: string,
