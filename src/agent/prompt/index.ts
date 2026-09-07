@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import type { ConversationMessage, CustomerProfile, LlmMessage } from '../types';
 import type { Decision } from '../schema';
 
-export const PROMPT_VERSION = 'v2';
+export const PROMPT_VERSION = 'v3';
 
 const PROMPT_FILE = `system.${PROMPT_VERSION}.md`;
 
