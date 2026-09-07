@@ -320,7 +320,9 @@ describe('runTurn - fail-safe behaviour', () => {
 
     expect(result.error).toBe('iteration_cap_reached');
     expect(result.decision.degraded).toBe(true);
-    expect(result.iterations).toBe(3);
+    // Two model calls were actually made, which is the cap. The counter must
+    // not overshoot, or a cap-hit looks like one more call than happened.
+    expect(result.llmCalls).toBe(2);
   });
 
   it('denies an invented tool and still produces a decision', async () => {

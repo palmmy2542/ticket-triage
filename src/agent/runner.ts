@@ -55,7 +55,8 @@ export interface TurnResult {
   status: 'ok' | 'failed';
   error?: string;
   traceId: string;
-  iterations: number;
+  /** Number of model calls this turn actually made. */
+  llmCalls: number;
 }
 
 export interface RunTurnInput {
@@ -106,7 +107,9 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
   let sideEffectBudget = maxSideEffectsPerTurn;
   let modelDecision: ModelDecision | null = null;
   let failure: string | undefined;
-  let iterations = 0;
+  /** Completed model calls. Counted, not derived from the loop variable, which
+   * overshoots by one when the cap is reached. */
+  let llmCalls = 0;
 
   log.info(
     { event: 'agent.turn.start', trace_id: traceId, conversation_id: conversationId, model: llm.model },
@@ -114,8 +117,9 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
   );
 
   try {
-    for (iterations = 1; iterations <= maxIterations; iterations++) {
+    for (let iteration = 1; iteration <= maxIterations; iteration++) {
       const response = await llm.complete({ messages, tools, responseFormat });
+      llmCalls = iteration;
       usage.inputTokens += response.usage?.inputTokens ?? 0;
       usage.outputTokens += response.usage?.outputTokens ?? 0;
 
@@ -123,7 +127,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
         {
           event: 'llm.response',
           trace_id: traceId,
-          iteration: iterations,
+          iteration,
           finish_reason: response.finishReason,
           tool_calls: response.toolCalls.map((c) => c.name),
         },
@@ -226,7 +230,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
       pending_side_effects: decision.pending_side_effect_ids,
       guard_notes: guardNotes,
       prompt_version: decision.prompt_version,
-      iterations,
+      llm_calls: llmCalls,
       latency_ms: latencyMs,
       input_tokens: usage.inputTokens,
       output_tokens: usage.outputTokens,
@@ -243,7 +247,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     status: degraded ? 'failed' : 'ok',
     error: failure,
     traceId,
-    iterations,
+    llmCalls,
   };
 }
 
