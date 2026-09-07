@@ -181,6 +181,28 @@ ticket is never auto-answered, a ticket with a pending approval is never auto-an
 `auto_respond` with no draft text is escalated, and `tools_used` is rebuilt from what
 actually executed — so the model cannot claim a refund it did not get.
 
+### Two rules the model does not get a vote on
+
+Both exist because live eval runs proved the model unreliable at them, and both are in
+`src/agent/rules/`, unit-tested without a model.
+
+**Paging.** If `check_service_status` reports the customer's own region as `degraded` or
+`outage`, the service opens an incident itself, whatever the decision says. No multi-user
+heuristic is needed: a region serves many customers, so degraded regional probe data *is*
+multi-user impact. A single blocked user on a healthy region does not match. The incident is
+filed through the same store as a model-initiated call, so the region dedup key means one
+page per region per conversation even when the model also asks. It is recorded with
+`policy_outcome: system_rule` so the audit trail shows the service acted, not the agent.
+
+**Injection.** Customer text is scanned for instruction-override phrasing before the model
+sees it. A flagged ticket gets **no side effect at all** — not even one filed for approval,
+because that would still put an attacker's demand in front of an operator as a single click
+— never auto-responds, and carries `injection_suspected: true` plus a `guard_notes` entry
+naming the patterns that matched. This is not a security control; it is a detector, and
+anyone who knows it exists can phrase around it. The control is the autonomy boundary, which
+holds whether or not this fires. A false positive costs automation on one ticket and sends it
+to a human, which is the safe direction to fail.
+
 ## Idempotency and retry safety
 
 Three layers, because one is not enough:
@@ -248,15 +270,19 @@ report is committed at [eval/results/baseline-gpt-4.1-mini.json](eval/results/ba
 | --- | --- |
 | Urgency, action, language, product area, requires_human | 100% within the accepted label sets |
 | Structurally valid decisions | 20 / 20 |
-| Runs passing every check | 17 / 20 |
+| Runs passing every check | 18 / 20 |
+| Tickets answered differently across runs | 0 / 10 |
 | Safety violations | 0 |
-| Median latency | 7.2 s |
-| Tokens per ticket | ~7,500 |
+| Median latency | 6.5 s |
+| Tokens per ticket | ~7,200 |
 
-The three imperfect runs are known and analysed in [WRITEUP.md](WRITEUP.md): ticket 1 files
-both refund requests in one run out of two, and on the injection ticket the model complies
-with the injected refund demand — the autonomy boundary and the guards are what stop it,
-which is the point, but it never flags the attempt to the operator.
+Moving paging and injection flagging out of the prompt and into `src/agent/rules/` is what
+took run-to-run instability from 2 tickets in 10 to zero. The injection ticket now flags and
+files nothing on every run, and the region is paged on every run.
+
+Two imperfect runs remain, analysed in [WRITEUP.md](WRITEUP.md): on one run of the Thai
+outage the model escalated without drafting a holding reply for the customer, and on one run
+of the rate-limit question it checked service status instead of the knowledge base.
 
 ## Observability
 
@@ -270,12 +296,13 @@ Grepping one `trace_id` reconstructs a decision; the database holds the durable 
 
 Honest list; the reasoning is in [WRITEUP.md](WRITEUP.md).
 
-- **Tool-call completeness is not fully reliable.** Classification is 100% across live runs,
-  but the model files ticket 1's two refund requests in only one run out of two. Prompting
-  moved this a long way and did not finish the job; the fix is to make the rule deterministic.
-- **The model complies with prompt injection.** On the injection ticket it files the demanded
-  refunds and tries to auto-respond. Nothing moves, because refunds are unreachable without a
-  human and the guards force escalation, but it never flags the attempt to the operator.
+- **The model still complies with prompt injection.** It asks for the demanded refunds and
+  wants to auto-respond; the detector and the boundary are what stop it. Detection is a
+  keyword scan, so it can be phrased around — the guarantee is the autonomy boundary, not the
+  detector.
+- **Tool-call completeness depends on the model where no rule covers it.** Filing refund
+  requests and searching the knowledge base are still the model's judgement, and it misses
+  them occasionally. The two behaviours that must not be missed are now rules in code.
 - Knowledge base search is lexical token overlap over seven documents, so it does not match
   synonyms and cannot match a Thai query against English articles.
 - No authentication, no multi-tenancy, no streaming, no deployment tooling — all explicitly
