@@ -107,7 +107,8 @@
         "executed_side_effects": {
           "open_incident": 1
         },
-        "reply_draft_language": "th"
+        "reply_draft_language": "th",
+        "expect_reply_draft": true
       }
     },
     {
@@ -231,7 +232,7 @@
     },
     {
       "id": "t6-api-rate-limits",
-      "note": "Technical question with a KB answer and a workaround. Should not page anyone.",
+      "note": "Technical question with a documented answer. An HTTP 429 is documented product behaviour, not an outage, so the knowledge base is the right source - v2 of the prompt gave conflicting guidance here and the model resolved it differently between runs.",
       "customer": {
         "id": "cust_3003",
         "plan": "pro",

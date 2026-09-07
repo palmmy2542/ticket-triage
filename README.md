@@ -14,6 +14,7 @@ test strategy that does not depend on the model being deterministic.
 - [Architecture](#architecture) · [Autonomy boundary](#autonomy-boundary) · [Idempotency](#idempotency-and-retry-safety)
 - [Testing](#testing) · [Eval harness](#eval-harness) · [Observability](#observability)
 - [Design decisions](WRITEUP.md) — the graded write-up, including trade-offs and failure modes
+- [Eval findings](eval/FINDINGS.md) — what each round of live measurement changed
 
 ## Setup
 
@@ -194,6 +195,18 @@ filed through the same store as a model-initiated call, so the region dedup key 
 page per region per conversation even when the model also asks. It is recorded with
 `policy_outcome: system_rule` so the audit trail shows the service acted, not the agent.
 
+**Grounding.** An auto-response is customer-facing text sent with no human in the loop, so a
+question-shaped ticket cannot be auto-answered unless a knowledge base search actually
+returned a relevant article. If it did not, the decision is downgraded to
+`route_to_specialist`. The knowledge base itself drops results below a relevance floor, so
+incidental word overlap never reaches the model as if it were an answer — telling the model
+to ignore low scores did not work, and not returning them does.
+
+**Holding replies.** A `critical` or `high` ticket with no `customer_reply_draft` is flagged
+in `guard_notes`. Deliberately a flag, not a fabrication: the message has to be in the
+customer's language and reflect the specific evidence, so code cannot write it, but the
+operator should not have to notice its absence.
+
 **Injection.** Customer text is scanned for instruction-override phrasing before the model
 sees it. A flagged ticket gets **no side effect at all** — not even one filed for approval,
 because that would still put an attacker's demand in front of an operator as a single click
@@ -270,19 +283,20 @@ report is committed at [eval/results/baseline-gpt-4.1-mini.json](eval/results/ba
 | --- | --- |
 | Urgency, action, language, product area, requires_human | 100% within the accepted label sets |
 | Structurally valid decisions | 20 / 20 |
-| Runs passing every check | 18 / 20 |
-| Tickets answered differently across runs | 0 / 10 |
+| Runs passing every check | 20 / 20 |
 | Safety violations | 0 |
-| Median latency | 6.5 s |
-| Tokens per ticket | ~7,200 |
+| Median latency | 7.3 s |
+| Tokens per ticket | ~7,900 |
 
-Moving paging and injection flagging out of the prompt and into `src/agent/rules/` is what
-took run-to-run instability from 2 tickets in 10 to zero. The injection ticket now flags and
-files nothing on every run, and the region is paged on every run.
+Every check passes on every run. The only remaining run-to-run variation is one ticket
+scoring `high` on one run and `medium` on the next, both inside the accepted band for a
+single blocked user.
 
-Two imperfect runs remain, analysed in [WRITEUP.md](WRITEUP.md): on one run of the Thai
-outage the model escalated without drafting a holding reply for the customer, and on one run
-of the rate-limit question it checked service status instead of the knowledge base.
+Getting here took three prompt versions and four rules in code.
+[eval/FINDINGS.md](eval/FINDINGS.md) records what each round measured, including the two rules
+that were wrong on their first attempt and what caught them. Nothing in this table came from a
+single lucky run: `--repeat` exists because a one-off pass on a non-deterministic component is
+not evidence.
 
 ## Observability
 
@@ -300,9 +314,9 @@ Honest list; the reasoning is in [WRITEUP.md](WRITEUP.md).
   wants to auto-respond; the detector and the boundary are what stop it. Detection is a
   keyword scan, so it can be phrased around — the guarantee is the autonomy boundary, not the
   detector.
-- **Tool-call completeness depends on the model where no rule covers it.** Filing refund
-  requests and searching the knowledge base are still the model's judgement, and it misses
-  them occasionally. The two behaviours that must not be missed are now rules in code.
+- **Knowledge base search is lexical, with a hand-picked relevance floor.** The floor
+  separates real answers from incidental word overlap on this seven-document corpus and would
+  need re-deriving on a real one. A learned retriever would not need a magic number.
 - Knowledge base search is lexical token overlap over seven documents, so it does not match
   synonyms and cannot match a Thai query against English articles.
 - No authentication, no multi-tenancy, no streaming, no deployment tooling — all explicitly

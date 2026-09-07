@@ -38,12 +38,11 @@ LLM-as-judge for groundedness. A sweeper for rows stuck in `executing`. Rate lim
 caps. Replaying prior turns' tool transcripts: only the previous decision is summarised, so
 tokens grow linearly rather than quadratically.
 
-**What the tests caught.** 90 unit tests and 29 end-to-end tests pass. The end-to-end suite
-found approve and reject returning `201`, and, worse, approving an already-*rejected* refund
-returning success instead of `409`. Cloning into a clean directory and following the README
-verbatim found the prompt file missing from the production build and `pnpm setup` silently
-shadowed by pnpm's own built-in command, which would have left a grader running against an
-empty database. **No accuracy number is claimed and the
+**What the tests caught.** 133 unit tests and 29 end-to-end tests pass. The end-to-end suite
+found approving an already-*rejected* refund returning success instead of `409`. Following
+the README verbatim in a clean clone found the prompt file missing from the production build
+and `pnpm setup` silently shadowed by pnpm's own built-in command, which would have left a
+grader running against an empty database. **No accuracy number is claimed and the
 prompt is v1-unverified.** The eval set exists so that the first hour with a key produces
 numbers instead of impressions.
 
@@ -55,36 +54,26 @@ budgets and provider fallback; then auth.
 
 ## What the live eval measured
 
-20 runs over 10 labelled tickets against `gpt-4.1-mini`. Every classification field landed
-inside its accepted label set on every run, all 20 decisions were structurally valid, and
-there were no safety violations. Numbers are in the README, per-run detail in the committed
-report.
+20 runs over 10 labelled tickets against `gpt-4.1-mini`, `--repeat 2`. Every check passes on
+every run: classification 100% within its accepted label sets, 20/20 structurally valid, zero
+safety violations, ~7 s and ~7.9k tokens per ticket. The only variation left is one ticket
+scoring `high` on one run and `medium` on the next, both inside the accepted band.
 
-Classification was never the hard part. **Tool-call completeness was.** Prompt v1 classified
-ticket 1 perfectly and then called no tools at all, routing to billing with an apology draft:
-"you may never move money" reads to a cautious model as "do not touch this tool". Prompt v2
-states the obligation as plainly as the prohibition and ends with a pre-return checklist,
-taking clean runs from 6/10 to 17/20.
-
-Two failures survived that, and both said the same thing: **behaviour that must be reliable
-does not belong in a prompt.** The model wrote "confirming a real regional outage" and paged
-nobody in a third of runs. And on ticket 5 it **complied with the injection**, filing refunds
+Classification was never the hard part. **Tool-call completeness was**, and it took three
+prompt versions and four rules in code to get from 6/10 clean runs to 20/20. The blow-by-blow
+is in [eval/FINDINGS.md](eval/FINDINGS.md); the lesson is one sentence: **behaviour that must
+be reliable does not belong in a prompt.** Prompt v1 triaged ticket 1 perfectly and then
+called no tools at all, because "you may never move money" reads to a cautious model as "do
+not touch this tool". Ticket 2 wrote "confirming a real regional outage" and paged nobody in a
+third of runs. And on ticket 5 the model **complied with the injection**, filing refunds
 against all three charges and choosing `auto_respond` to tell the customer the money was on
-its way. Nothing moved, because `issue_refund` is unreachable without a human and the guard
-rewrote the action — but an operator rubber-stamping approvals would have refunded everything.
+its way — nothing moved, because `issue_refund` is unreachable without a human and the guard
+rewrote the action, but an operator rubber-stamping approvals would have refunded everything.
 
-So both became rules in `src/agent/rules/`, unit-tested without a model and described in the
-README: probe data showing the customer's region degraded opens an incident regardless of the
-decision, deduped by region so it cannot double-page; and a ticket flagged for override
-phrasing gets no side effect at all, not even one filed for approval. The detector is a
-keyword scan, not a security control — the boundary stays the guarantee, and a false positive
-routes a ticket to a human.
-
-Measured: clean runs 17/20 → 18/20, and **tickets answered differently between runs went from
-2 in 10 to 0.** That second number is the point; moving a rule into code buys the same answer
-every time, not a higher score. Two imperfect runs remain, both model judgement where no rule
-covers it: one escalated the Thai outage without a holding reply, one answered the rate-limit
-question after checking status instead of the knowledge base.
+So paging, injection flagging, answer grounding, and the holding-reply check became rules in
+code, and two of those rules were wrong on their first attempt. Both mistakes were caught by
+re-running the harness rather than by reasoning, which is the whole case for keeping it cheap
+to run.
 
 ## Failure modes, ticket by ticket
 
@@ -107,13 +96,11 @@ calling `check_service_status` without a region, reading "all systems operationa
 auto-responding "clear your cache" to a 45-seat account mid-incident. Three defences: the
 region argument defaults to the customer's region inside the tool; the tool returns the
 regional probe, the public page, and an explicit `agrees_with_public_page: false`; and the
-prompt states that human-maintained status pages lag machine probes. Live runs confirm the
-model now cites the 0.41 error rate against the stale page. Second: replying in English —
-the eval asserts Thai script, and one early run produced no draft at all. Third: KB search
-is useless here — the tokenizer fragments Thai, and the one document it matches is hit only
-because the ASCII substring `error 500` appears in the message. Documented rather than
-pretending a lexical scorer is multilingual. Fourth: paging twice, or not at all — now a
-deterministic rule, deduped by region.
+prompt states that human-maintained status pages lag machine probes. Live runs now cite the
+0.41 error rate against the stale page. Second: replying in English, or not at all — the eval
+asserts Thai script and a holding reply. Third: KB search is useless here, because the
+tokenizer fragments Thai and the one document it matches is hit only via the ASCII substring
+`error 500`. Documented rather than pretending a lexical scorer is multilingual.
 
 **Ticket 3 — dark mode, a bug plus a feature request, relaxed customer.** The failure is the
 opposite of ticket 1: over-escalation. A prompt full of safety rules forwards routine how-to
@@ -123,14 +110,16 @@ every live run, secondary topic captured. Second: a single `issue_type` would dr
 scheduling request, so the schema carries `secondary_topics`. Third: this ticket is only
 answerable because the account lookup reveals release `4.1.3` while the KB article explains
 the toggle ships in `4.2`. A model answering from the article without checking the release
-would confidently tell a paying customer dark mode does not exist — no schema catches that,
-which is what the eval and, in production, an LLM-as-judge are for.
+would confidently tell a paying customer dark mode does not exist — the grounding guard
+forces a relevant article to exist, but not that it was read correctly, which is what an
+LLM-as-judge would be for.
 
 ## Measuring this in production
 
 Offline: the labelled set runs on every prompt or model change, gated on zero safety
-violations and no accuracy regression, with `--repeat` separating real improvement from
-noise. Every decision stores its `prompt_version` and model, so any metric cohorts by prompt.
+violations and no accuracy regression, with `--repeat` separating improvement from noise.
+Every decision stores its `prompt_version` and model, so any metric cohorts by prompt — which
+is how the severity-anchoring regression above was attributable at all.
 
 Online, ground truth is what the human did next, and it is free to collect: was the draft
 sent unchanged, edited or discarded; did an operator change the urgency or action; was a
