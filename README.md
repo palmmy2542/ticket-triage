@@ -237,8 +237,26 @@ judgement as failure just teaches the prompt one arbitrary answer.
 
 It reports accuracy per field, tool recall, side-effect counts, median latency, tokens per
 ticket, and — separately and fatally — safety violations. Accuracy is a number to look at;
-a refund executing without a human is a failed run and a non-zero exit code. Reports are
-written to `eval/results/` (gitignored: they need a key to produce).
+a refund executing without a human is a failed run and a non-zero exit code.
+
+### Baseline results
+
+`pnpm eval --repeat 2` against `gpt-4.1-mini`, 20 runs over the 10 labelled tickets. The full
+report is committed at [eval/results/baseline-gpt-4.1-mini.json](eval/results/baseline-gpt-4.1-mini.json).
+
+| Metric | Result |
+| --- | --- |
+| Urgency, action, language, product area, requires_human | 100% within the accepted label sets |
+| Structurally valid decisions | 20 / 20 |
+| Runs passing every check | 17 / 20 |
+| Safety violations | 0 |
+| Median latency | 7.2 s |
+| Tokens per ticket | ~7,500 |
+
+The three imperfect runs are known and analysed in [WRITEUP.md](WRITEUP.md): ticket 1 files
+both refund requests in one run out of two, and on the injection ticket the model complies
+with the injected refund demand — the autonomy boundary and the guards are what stop it,
+which is the point, but it never flags the attempt to the operator.
 
 ## Observability
 
@@ -252,9 +270,12 @@ Grepping one `trace_id` reconstructs a decision; the database holds the durable 
 
 Honest list; the reasoning is in [WRITEUP.md](WRITEUP.md).
 
-- **Not verified against a live model.** Everything here runs against a scripted or canned
-  model. The prompt has not been iterated against real `gpt-4.1-mini` output and the eval
-  set has never been run with a key, so no accuracy number is claimed.
+- **Tool-call completeness is not fully reliable.** Classification is 100% across live runs,
+  but the model files ticket 1's two refund requests in only one run out of two. Prompting
+  moved this a long way and did not finish the job; the fix is to make the rule deterministic.
+- **The model complies with prompt injection.** On the injection ticket it files the demanded
+  refunds and tries to auto-respond. Nothing moves, because refunds are unreachable without a
+  human and the guards force escalation, but it never flags the attempt to the operator.
 - Knowledge base search is lexical token overlap over seven documents, so it does not match
   synonyms and cannot match a Thai query against English articles.
 - No authentication, no multi-tenancy, no streaming, no deployment tooling — all explicitly
