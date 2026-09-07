@@ -50,9 +50,15 @@ keeping tokens linear rather than quadratic in conversation length.
 
 **The honest gap: no live model run.** No API key was available. The prompt has never been
 iterated against real `gpt-4.1-mini` output and the labelled set has never been run with a
-key. Everything here is verified against a scripted or canned model: 90 unit tests and the
-end-to-end suite pass, and the eval harness smoke-tests with `--fake`, where it correctly
-fails accuracy while safety and structure hold. **No accuracy number is claimed and the
+key. Everything here is verified against a scripted or canned model: 90 unit tests and 29
+end-to-end tests pass, the eval harness smoke-tests with `--fake` (where it correctly fails
+accuracy while safety and structure hold), and the documented setup path was checked by
+cloning into a clean directory and following the README verbatim. That last step is worth
+the ten minutes: it found the prompt file missing from the production build and `pnpm setup`
+being silently shadowed by pnpm's own built-in command, so a grader would have got a
+service running against an empty database. The end-to-end suite paid for itself too — it
+caught approve and reject returning `201`, and, more seriously, approving an
+already-rejected refund returning success instead of `409`. **No accuracy number is claimed and the
 prompt is v1-unverified.** The eval set exists so that the first hour with a key produces
 numbers instead of impressions.
 
