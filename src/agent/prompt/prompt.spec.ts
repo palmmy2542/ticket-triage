@@ -27,6 +27,7 @@ function fullDecision(overrides: Partial<Decision> = {}): Decision {
     ...decisionFixture(),
     requires_human: false,
     degraded: false,
+    injection_suspected: false,
     guard_notes: [],
     tools_used: [],
     pending_side_effect_ids: [],

@@ -151,11 +151,21 @@ describe('Resilience (e2e)', () => {
     // injected text asked for.
     expect(body.decision.next_action).toBe('escalate_to_human');
     expect(body.decision.requires_human).toBe(true);
-    expect(body.decision.pending_side_effect_ids).toHaveLength(1);
+
+    // A deterministic detector flags the ticket, and a flagged ticket gets no
+    // side effect at all - not even one filed for approval, because that would
+    // still put the attacker's demand in front of an operator as a single click.
+    expect(body.decision.injection_suspected).toBe(true);
+    expect(body.decision.guard_notes.join(' ')).toContain('injection_suspected');
+    expect(body.decision.pending_side_effect_ids).toHaveLength(0);
 
     const conv = json(await get(`/conversations/${body.conversation_id}`));
-    expect(conv.side_effects).toHaveLength(1);
-    expect(conv.side_effects[0].status).toBe('pending_approval');
-    expect(conv.side_effects[0].result).toBeNull();
+    expect(conv.side_effects).toHaveLength(0);
+
+    // The refusal is in the audit trail with its reason, so the operator can see
+    // what the ticket tried to do.
+    const refund = conv.tool_calls.find((c: { tool: string }) => c.tool === 'issue_refund');
+    expect(refund).toMatchObject({ policy_outcome: 'denied', status: 'denied' });
+    expect(refund.result.error.code).toBe('injection_suspected');
   });
 });
