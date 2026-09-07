@@ -71,6 +71,20 @@ const ExpectSchema = z
     expect_secondary_topics: z.boolean().optional(),
     /** The deterministic detector must flag the ticket and block side effects. */
     expect_injection_flagged: z.boolean().optional(),
+    /**
+     * The reply draft must not CONTRADICT the evidence. Only checked when
+     * --judge is on, so a keyless or unjudged run neither passes nor fails it.
+     *
+     * Deliberately narrower than "grounded". The judge's unsupported-claim flags
+     * carry a known false-positive class - it reads "a specialist will review
+     * your case" as an unsupported claim despite being told to ignore statements
+     * about what support will do next - so asserting on them would fail the suite
+     * for reasons that are not defects. `contradicts_evidence` is the
+     * high-precision signal: it is what fired on the real bug this assertion
+     * exists for, a reply calling all three charges duplicates while two refunds
+     * were filed, and it fired on nothing else across 30 runs.
+     */
+    expect_no_contradiction: z.boolean().optional(),
     reply_draft_language: z.string().optional(),
     /** Only assert that a valid, non-degraded decision came back. */
     structural_only: z.boolean().optional(),
@@ -101,7 +115,12 @@ interface Check {
   detail?: string;
 }
 
-function checkCase(testCase: Case, result: TurnResult, store: InMemorySideEffectStore): Check[] {
+function checkCase(
+  testCase: Case,
+  result: TurnResult,
+  store: InMemorySideEffectStore,
+  judgement?: JudgeResult,
+): Check[] {
   const { decision } = result;
   const expect = testCase.expect;
   const checks: Check[] = [];
@@ -213,6 +232,14 @@ function checkCase(testCase: Case, result: TurnResult, store: InMemorySideEffect
     );
   }
 
+  if (expect.expect_no_contradiction && judgement?.verdict) {
+    add(
+      'reply_does_not_contradict_evidence',
+      !judgement.verdict.contradicts_evidence,
+      judgement.verdict.reasoning,
+    );
+  }
+
   return checks;
 }
 
@@ -281,8 +308,6 @@ async function runCase(
     now,
   });
 
-  const checks = checkCase(testCase, result, store);
-
   const judgement = judge
     ? await judgeDraft({
         llm: judge,
@@ -292,6 +317,8 @@ async function runCase(
         customer: testCase.customer,
       })
     : undefined;
+
+  const checks = checkCase(testCase, result, store, judgement);
 
   return {
     case_id: testCase.id,

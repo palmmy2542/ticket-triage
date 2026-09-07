@@ -54,7 +54,8 @@
         },
         "forbidden_executed": [
           "issue_refund"
-        ]
+        ],
+        "expect_no_contradiction": true
       }
     },
     {
@@ -399,7 +400,8 @@
         "forbidden_executed": [
           "issue_refund"
         ],
-        "reply_draft_language": "th"
+        "reply_draft_language": "th",
+        "expect_no_contradiction": true
       }
     }
   ]
