@@ -6,5 +6,8 @@ coverage
 .DS_Store
 prisma/*.db
 
-# Eval reports are machine-specific and need an API key to produce
+# Eval reports need an API key to produce, so local runs stay out of git.
+# The committed baseline report is the exception - it is the evidence behind the
+# numbers quoted in the write-up.
 eval/results/*.json
+!eval/results/baseline-*.json

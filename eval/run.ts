@@ -226,6 +226,10 @@ interface CaseRun {
   requires_human: boolean;
   degraded: boolean;
   tools_used: string[];
+  /** Kept in the report because you cannot iterate a prompt you cannot read. */
+  rationale: string;
+  operator_summary: string;
+  customer_reply_draft: string | null;
   checks: Check[];
   passed: number;
   total: number;
@@ -264,6 +268,9 @@ async function runCase(testCase: Case, llm: LlmClient, log: AgentLogger, attempt
     requires_human: result.decision.requires_human,
     degraded: result.decision.degraded,
     tools_used: result.decision.tools_used.map((t) => `${t.name}:${t.status}`),
+    rationale: result.decision.rationale,
+    operator_summary: result.decision.operator_summary,
+    customer_reply_draft: result.decision.customer_reply_draft,
     checks,
     passed: checks.filter((c) => c.pass).length,
     total: checks.length,
@@ -325,6 +332,13 @@ async function main(): Promise<void> {
       );
       for (const failure of failures) {
         console.log(`         - ${failure.name}${failure.detail ? `: ${failure.detail}` : ''}`);
+      }
+      if (flag('show')) {
+        console.log(`         rationale: ${run.rationale}`);
+        console.log(`         summary:   ${run.operator_summary}`);
+        if (run.customer_reply_draft) {
+          console.log(`         draft:     ${run.customer_reply_draft.slice(0, 400)}`);
+        }
       }
     }
   }
