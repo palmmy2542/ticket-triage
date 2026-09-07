@@ -21,14 +21,14 @@ Requires Node >= 22, pnpm, and Docker.
 
 ```bash
 cp .env.example .env      # then paste your OPENAI_API_KEY into .env
-docker compose up -d db && pnpm install && pnpm setup && pnpm start:dev
+docker compose up -d db && pnpm install && pnpm db:setup && pnpm start:dev
 ```
 
-`pnpm setup` applies the Prisma migration. The service listens on `http://localhost:3000`.
+`pnpm db:setup` applies the Prisma migration. The service listens on `http://localhost:3000`.
 
 If host port 5433 is already taken, set `DB_PORT` to a free port in `.env` and update the
 port in `DATABASE_URL` to match. Without Docker, point `DATABASE_URL` at any Postgres 14+
-and run `pnpm setup`.
+and run `pnpm db:setup`.
 
 To run the whole thing with no API key and no spend, set `FAKE_LLM=true`. Every endpoint,
 the database, the audit trail, and idempotency work; the model returns one canned decision.

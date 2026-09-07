@@ -8,15 +8,15 @@
   },
   "scripts": {
     "postinstall": "prisma generate",
-    "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/prompt && cp src/agent/prompt/*.md dist/agent/prompt/",
-    "start": "node dist/main.js",
+    "db:setup": "prisma migrate deploy",
+    "db:test:setup": "bash scripts/setup-test-db.sh",
     "start:dev": "node --env-file=.env --watch -r ts-node/register src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/prompt && cp src/agent/prompt/*.md dist/agent/prompt/",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest --selectProjects unit",
     "test:e2e": "jest --selectProjects e2e",
-    "setup": "prisma migrate deploy",
-    "db:test:setup": "bash scripts/setup-test-db.sh",
     "eval": "node --env-file-if-exists=.env -r ts-node/register eval/run.ts"
   },
   "dependencies": {
