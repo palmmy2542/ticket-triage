@@ -28,7 +28,8 @@ export type DenyCode =
   | 'unknown_tool'
   | 'malformed_arguments'
   | 'invalid_arguments'
-  | 'side_effect_budget_exhausted';
+  | 'side_effect_budget_exhausted'
+  | 'injection_suspected';
 
 export interface EvaluateInput {
   registry: ToolRegistry;
@@ -38,10 +39,17 @@ export interface EvaluateInput {
   ctx: ToolContext;
   /** Remaining side-effecting calls allowed in this turn. */
   sideEffectBudget: number;
+  /**
+   * The ticket tried to override the agent's instructions. When true, no
+   * side-effecting tool runs or is even filed for approval: a hostile ticket
+   * must not be able to put three plausible refund requests in front of an
+   * operator who is clicking approve.
+   */
+  injectionSuspected?: boolean;
 }
 
 export function evaluate(input: EvaluateInput): PolicyDecision {
-  const { registry, name, rawArgs, ctx, sideEffectBudget } = input;
+  const { registry, name, rawArgs, ctx, sideEffectBudget, injectionSuspected = false } = input;
 
   const tool = registry.get(name);
   if (!tool) {
@@ -78,6 +86,17 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
   const args = parsed.data;
 
   if (tool.sideEffecting) {
+    if (injectionSuspected) {
+      // Deliberately not "requires_approval": filing the request would still
+      // hand the attacker's demand to a human as a one-click action.
+      return {
+        kind: 'deny',
+        code: 'injection_suspected',
+        message:
+          'This ticket attempts to override the agent instructions, so no side effect may be ' +
+          'requested from it. A human must handle the ticket.',
+      };
+    }
     // A runaway loop that pages on-call twenty times is a real failure mode, so
     // the budget is enforced here rather than trusted to the prompt.
     if (sideEffectBudget <= 0) {

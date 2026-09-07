@@ -87,6 +87,12 @@ export const DecisionSchema = ModelDecisionSchema.extend({
   degraded: z.boolean(),
   /** Deterministic corrections applied on top of the model's output. Server-set. */
   guard_notes: z.array(z.string()),
+  /**
+   * The ticket contains text that tries to override the agent's instructions.
+   * Set by a deterministic detector, never by the model - see rules/injection.ts.
+   * Defaulted so decisions persisted before this field existed still parse.
+   */
+  injection_suspected: z.boolean().default(false),
   tools_used: z.array(ToolUsedSchema),
   /** Side effects awaiting human approval, e.g. a refund. Server-set. */
   pending_side_effect_ids: z.array(z.string()),

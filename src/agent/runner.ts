@@ -12,6 +12,8 @@ import { randomUUID } from 'node:crypto';
 
 import { buildMessages, PROMPT_VERSION } from './prompt';
 import { evaluate, type PolicyDecision } from './policy';
+import { detectInjectionAttempt, type InjectionFinding } from './rules/injection';
+import { detectRegionalOutage, incidentFor } from './rules/regional-outage';
 import {
   DECISION_RESPONSE_FORMAT_NAME,
   ModelDecisionSchema,
@@ -39,7 +41,8 @@ export interface ToolCallRecord {
   toolName: string;
   args: unknown;
   result: unknown;
-  policyOutcome: 'allowed' | 'requires_approval' | 'denied';
+  /** `system_rule` marks an action the service took itself, not one the model asked for. */
+  policyOutcome: 'allowed' | 'requires_approval' | 'denied' | 'system_rule';
   status: 'succeeded' | 'failed' | 'pending_approval' | 'denied';
   latencyMs: number;
   sideEffectId?: string;
@@ -102,6 +105,24 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     schema: strictJsonSchema(ModelDecisionSchema),
   };
 
+  // Deterministic, before the model sees anything: a ticket that tries to
+  // override the agent's instructions gets no automated side effects at all.
+  const injection = detectInjectionAttempt(
+    input.messages.filter((m) => m.role === 'customer').map((m) => m.content).join('\n'),
+  );
+  if (injection) {
+    log.warn(
+      {
+        event: 'injection.detected',
+        trace_id: traceId,
+        conversation_id: conversationId,
+        patterns: injection.patterns,
+        excerpts: injection.excerpts,
+      },
+      'ticket contains an instruction-override attempt',
+    );
+  }
+
   const records: ToolCallRecord[] = [];
   const usage: LlmUsage = { inputTokens: 0, outputTokens: 0 };
   let sideEffectBudget = maxSideEffectsPerTurn;
@@ -156,6 +177,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
           rawArgs: call.rawArgs,
           ctx,
           sideEffectBudget,
+          injectionSuspected: injection !== null,
         });
         if (decision.kind !== 'deny' && decision.tool.sideEffecting) sideEffectBudget -= 1;
         log.info(
@@ -206,12 +228,26 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     log.error({ event: 'agent.turn.error', trace_id: traceId, reason: failure }, 'agent turn failed');
   }
 
+  // The service pages on its own evidence, whatever the model decided. Runs
+  // after the loop so it sees every status check the model made, and before the
+  // guards so the resulting incident appears in the decision's tools_used.
+  const systemRecords = await pageIfRegionIsDown({
+    records,
+    ctx,
+    store,
+    registry,
+    log,
+    traceId,
+  });
+  records.push(...systemRecords);
+
   const degraded = modelDecision === null;
   const { decision, guardNotes } = applyGuards({
     base: modelDecision ?? failSafeDecision(failure ?? 'unknown'),
     records,
     degraded,
     model: llm.model,
+    injection,
   });
 
   const latencyMs = Date.now() - startedAt;
@@ -260,6 +296,8 @@ interface ExecuteInput {
   /** What the model asked for, so a denied call is still auditable by name. */
   attemptedName: string;
   decision: PolicyDecision;
+  /** Overrides the recorded outcome; used to mark service-initiated actions. */
+  outcomeLabel?: ToolCallRecord['policyOutcome'];
   ctx: ToolContext;
   store: SideEffectStore;
   log: AgentLogger;
@@ -268,7 +306,8 @@ interface ExecuteInput {
 }
 
 async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
-  const { seq, attemptedName, decision, ctx, store, log, traceId, conversationId } = input;
+  const { seq, attemptedName, decision, ctx, store, log, traceId, conversationId, outcomeLabel } =
+    input;
   const startedAt = Date.now();
 
   if (decision.kind === 'deny') {
@@ -296,7 +335,8 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
       toolName: tool.name,
       args,
       result,
-      policyOutcome: decision.kind === 'requires_approval' ? 'requires_approval' : 'allowed',
+      policyOutcome:
+        outcomeLabel ?? (decision.kind === 'requires_approval' ? 'requires_approval' : 'allowed'),
       status,
       latencyMs: Date.now() - startedAt,
       sideEffectId,
@@ -417,6 +457,100 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic rules
+// ---------------------------------------------------------------------------
+
+/**
+ * Open an incident when our own probes say the customer's region is degraded.
+ *
+ * Not a guard, because guards are pure and this has a side effect. Not a prompt
+ * rule, because across live runs the model confirmed a regional outage in its
+ * rationale and paged nobody in a third of runs. Whether an engineer is woken up
+ * must not depend on sampling.
+ *
+ * Safe to run every turn: the incident is filed through the same SideEffectStore
+ * as a model-initiated call, so the region dedup key means one page per region
+ * per conversation. If the model already paged, this replays the stored result
+ * instead of paging again.
+ */
+async function pageIfRegionIsDown(input: {
+  records: ToolCallRecord[];
+  ctx: ToolContext;
+  store: SideEffectStore;
+  registry: ToolRegistry;
+  log: AgentLogger;
+  traceId: string;
+}): Promise<ToolCallRecord[]> {
+  const { records, ctx, store, registry, log, traceId } = input;
+
+  const outage = detectRegionalOutage(records, ctx.customer.region);
+  if (!outage) return [];
+
+  // The model already paged for this region in this turn: nothing to add.
+  const alreadyPaged = records.some(
+    (record) =>
+      record.toolName === 'open_incident' &&
+      (record.status === 'succeeded' || record.status === 'pending_approval'),
+  );
+  if (alreadyPaged) {
+    log.info(
+      { event: 'rule.paging.skipped', trace_id: traceId, region: outage.region, reason: 'agent_already_paged' },
+      'deterministic paging rule had nothing to do',
+    );
+    return [];
+  }
+
+  const tool = registry.get('open_incident');
+  if (!tool) {
+    log.error({ event: 'rule.paging.unavailable', trace_id: traceId }, 'open_incident is not registered');
+    return [];
+  }
+
+  const candidate = incidentFor(outage, ctx.conversationId);
+  const parsed = tool.args.safeParse(candidate);
+  if (!parsed.success) {
+    // Our own synthesised arguments failed the tool contract: a bug here must be
+    // loud rather than a silently skipped page.
+    log.error(
+      { event: 'rule.paging.invalid_args', trace_id: traceId, issues: parsed.error.issues },
+      'deterministic incident arguments failed validation',
+    );
+    return [];
+  }
+
+  log.warn(
+    {
+      event: 'rule.paging.fired',
+      trace_id: traceId,
+      region: outage.region,
+      state: outage.state,
+      api_error_rate: outage.apiErrorRate,
+      evidence_seq: outage.sourceSeq,
+    },
+    'paging on-call from probe data, independently of the agent decision',
+  );
+
+  const record = await executeToolCall({
+    seq: records.length + 1,
+    attemptedName: tool.name,
+    decision: {
+      kind: 'allow',
+      tool,
+      args: parsed.data,
+      dedupKey: tool.dedupKey!(parsed.data, ctx),
+    },
+    outcomeLabel: 'system_rule',
+    ctx,
+    store,
+    log,
+    traceId,
+    conversationId: ctx.conversationId,
+  });
+
+  return [record];
+}
+
+// ---------------------------------------------------------------------------
 // Parsing, guards, fail-safe
 // ---------------------------------------------------------------------------
 
@@ -475,8 +609,9 @@ export function applyGuards(input: {
   records: ToolCallRecord[];
   degraded: boolean;
   model: string;
+  injection?: InjectionFinding | null;
 }): { decision: Decision; guardNotes: string[] } {
-  const { base, records, degraded, model } = input;
+  const { base, records, degraded, model, injection = null } = input;
   const notes: string[] = [];
 
   // De-duplicated: a model that asks for the same refund twice must not make
@@ -501,6 +636,14 @@ export function applyGuards(input: {
   };
 
   if (degraded) escalate('triage_degraded: forced escalation');
+  if (injection) {
+    // Never auto-answer a ticket that tried to hijack the agent: the reply would
+    // go to whoever wrote the injection, confirming what they asked for.
+    escalate(`injection_suspected: ${injection.patterns.join(', ')}`);
+    if (!notes.some((note) => note.startsWith('injection_suspected'))) {
+      notes.push(`injection_suspected: ${injection.patterns.join(', ')}`);
+    }
+  }
   if (pendingIds.length > 0 && nextAction === 'auto_respond') {
     escalate('pending_human_approval: cannot auto-respond while an action awaits approval');
   }
@@ -533,6 +676,7 @@ export function applyGuards(input: {
     // every other action needs one.
     requires_human: nextAction !== 'auto_respond',
     degraded,
+    injection_suspected: injection !== null,
     guard_notes: notes,
     tools_used: toolsUsed,
     pending_side_effect_ids: pendingIds,
