@@ -20,6 +20,8 @@ export interface OpenAiLlmOptions {
   timeoutMs: number;
   /** Provider-level retries for transient failures. Keep low: the caller has a fail-safe. */
   maxRetries?: number;
+  /** Sampling temperature. The judge pins this to 0; triage leaves it at the default. */
+  temperature?: number;
   log?: AgentLogger;
 }
 
@@ -59,6 +61,7 @@ export class OpenAiLlm implements LlmClient {
           },
         })),
         tool_choice: 'auto',
+        ...(this.options.temperature === undefined ? {} : { temperature: this.options.temperature }),
         response_format: {
           type: 'json_schema',
           json_schema: {

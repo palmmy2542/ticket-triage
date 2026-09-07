@@ -6,7 +6,7 @@ module.exports = {
       preset: 'ts-jest',
       testEnvironment: 'node',
       rootDir: '.',
-      testMatch: ['<rootDir>/src/**/*.spec.ts'],
+      testMatch: ['<rootDir>/src/**/*.spec.ts', '<rootDir>/eval/**/*.spec.ts'],
     },
     {
       displayName: 'e2e',

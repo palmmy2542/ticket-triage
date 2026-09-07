@@ -4,6 +4,9 @@
  *   pnpm eval                     # full set against OPENAI_MODEL
  *   pnpm eval -- --model gpt-4.1  # compare models on the same labels
  *   pnpm eval -- --case t2 --repeat 3 --verbose
+ *   pnpm eval -- --judge          # add an LLM-as-judge pass on reply groundedness
+ *   pnpm eval -- --judge-selftest # check the judge discriminates before trusting it
+ *   pnpm eval -- --judge --judge-model gpt-4.1   # let a stronger model mark the homework
  *   pnpm eval -- --fake           # no API key: proves the harness, not the model
  *
  * What it measures, and why these metrics:
@@ -19,6 +22,10 @@
  *  - Flip rate under --repeat: the same ticket answered differently across runs
  *    is the number that tells you whether an accuracy change is a real
  *    improvement or noise.
+ *  - Groundedness (--judge): whether the reply draft only asserts things the
+ *    gathered evidence supports. Reported next to the deterministic metrics and
+ *    never mixed into them, because a non-deterministic judge cannot be a gate
+ *    for a non-deterministic system - it is an instrument with its own error.
  *  - Latency and tokens per ticket, since cost per ticket decides whether this
  *    is deployable at all.
  *
@@ -30,6 +37,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 
+import { judgeDraft, runCalibration, type JudgeResult } from './judge';
 import { CannedLlm } from '../src/agent/llm/canned';
 import { OpenAiLlm } from '../src/agent/llm/openai';
 import { runTurn, type TurnResult } from '../src/agent/runner';
@@ -237,6 +245,8 @@ interface CaseRun {
   rationale: string;
   operator_summary: string;
   customer_reply_draft: string | null;
+  /** Advisory groundedness verdict; present only with --judge. */
+  judge?: JudgeResult;
   checks: Check[];
   passed: number;
   total: number;
@@ -246,7 +256,13 @@ interface CaseRun {
   output_tokens: number;
 }
 
-async function runCase(testCase: Case, llm: LlmClient, log: AgentLogger, attempt: number): Promise<CaseRun> {
+async function runCase(
+  testCase: Case,
+  llm: LlmClient,
+  log: AgentLogger,
+  attempt: number,
+  judge?: LlmClient,
+): Promise<CaseRun> {
   const now = new Date();
   const store = new InMemorySideEffectStore();
 
@@ -266,6 +282,17 @@ async function runCase(testCase: Case, llm: LlmClient, log: AgentLogger, attempt
   });
 
   const checks = checkCase(testCase, result, store);
+
+  const judgement = judge
+    ? await judgeDraft({
+        llm: judge,
+        draft: result.decision.customer_reply_draft,
+        records: result.toolCalls,
+        ticket: testCase.messages.map((m) => m.text).join('\n'),
+        customer: testCase.customer,
+      })
+    : undefined;
+
   return {
     case_id: testCase.id,
     attempt,
@@ -278,6 +305,7 @@ async function runCase(testCase: Case, llm: LlmClient, log: AgentLogger, attempt
     rationale: result.decision.rationale,
     operator_summary: result.decision.operator_summary,
     customer_reply_draft: result.decision.customer_reply_draft,
+    judge: judgement,
     checks,
     passed: checks.filter((c) => c.pass).length,
     total: checks.length,
@@ -323,12 +351,41 @@ async function main(): Promise<void> {
 
   const log = flag('verbose') ? verboseLogger() : silentLogger;
 
-  console.log(`\neval: ${cases.length} case(s) x ${repeat} run(s) against ${model}\n`);
+  // Judging with the same model that wrote the draft is the weakest form of the
+  // technique, so --judge-model exists and the report records which model judged.
+  const judgeModel = arg('judge-model') ?? process.env.OPENAI_JUDGE_MODEL ?? model;
+  const judge = flag('judge')
+    ? useFake
+      ? new CannedLlm()
+      : new OpenAiLlm({
+          apiKey: process.env.OPENAI_API_KEY!,
+          model: judgeModel,
+          timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 60_000),
+          maxRetries: 1,
+          // A measuring instrument should wobble as little as the provider allows.
+          temperature: 0,
+        })
+    : undefined;
+
+  if (flag('judge-selftest')) {
+    if (!judge) throw new Error('--judge-selftest requires --judge');
+    console.log(`\njudge calibration (${judgeModel}): known-answer cases\n`);
+    const { passed, total } = await runCalibration(judge);
+    console.log(`\n  ${passed}/${total} correct\n`);
+    if (passed < total) process.exitCode = 1;
+    return;
+  }
+
+  console.log(
+    `\neval: ${cases.length} case(s) x ${repeat} run(s) against ${model}` +
+      (judge ? `, groundedness judged by ${judgeModel}` : '') +
+      '\n',
+  );
 
   const runs: CaseRun[] = [];
   for (const testCase of cases) {
     for (let attempt = 1; attempt <= repeat; attempt++) {
-      const run = await runCase(testCase, llm, log, attempt);
+      const run = await runCase(testCase, llm, log, attempt, judge);
       runs.push(run);
       const failures = run.checks.filter((c) => !c.pass);
       const mark = run.fatal_failures.length > 0 ? 'UNSAFE' : failures.length === 0 ? 'pass' : 'FAIL';
@@ -339,6 +396,13 @@ async function main(): Promise<void> {
       );
       for (const failure of failures) {
         console.log(`         - ${failure.name}${failure.detail ? `: ${failure.detail}` : ''}`);
+      }
+      if (run.judge?.verdict && !run.judge.verdict.grounded) {
+        console.log(
+          `         [judge] ungrounded: ${run.judge.verdict.unsupported_claims.join(' | ') || run.judge.verdict.reasoning}`,
+        );
+      } else if (run.judge?.skipped && run.judge.skipped !== 'no_draft') {
+        console.log(`         [judge] ${run.judge.skipped}`);
       }
       if (flag('show')) {
         console.log(`         rationale: ${run.rationale}`);
@@ -388,6 +452,24 @@ async function main(): Promise<void> {
   const medianLatency = [...runs.map((r) => r.latency_ms)].sort((a, b) => a - b)[
     Math.floor(runs.length / 2)
   ];
+  const judged = runs.map((r) => r.judge).filter((j): j is JudgeResult => Boolean(j?.verdict));
+  const grounded = judged.filter((j) => j.verdict!.grounded).length;
+  const contradictions = judged.filter((j) => j.verdict!.contradicts_evidence).length;
+  const judgeErrors = runs.filter(
+    (r) => r.judge?.skipped && !['no_draft', 'no_evidence'].includes(r.judge.skipped),
+  ).length;
+
+  if (judge) {
+    // Printed apart from the metrics above: this one is advisory, and a judge
+    // that could not answer must never be counted as a pass.
+    console.log(`\n  --- groundedness (advisory, judged by ${judgeModel}) ---`);
+    console.log(`  ${'drafts judged'.padEnd(20)} ${judged.length}/${runs.length}`);
+    console.log(`  ${'grounded'.padEnd(20)} ${grounded}/${judged.length || 1}`);
+    console.log(`  ${'contradictions'.padEnd(20)} ${contradictions}`);
+    if (judgeErrors > 0) console.log(`  ${'judge errors'.padEnd(20)} ${judgeErrors}`);
+    console.log('');
+  }
+
   console.log(`  ${'median latency'.padEnd(20)} ${medianLatency}ms`);
   console.log(`  ${'tokens (total)'.padEnd(20)} ${totalTokens}  (~${Math.round(totalTokens / runs.length)}/ticket)`);
 
@@ -400,6 +482,9 @@ async function main(): Promise<void> {
     clean_runs: perfectCases,
     safety_violations: fatal.map((c) => c.name),
     unstable_cases: flips,
+    groundedness: judge
+      ? { judged: judged.length, grounded, contradictions, judge_errors: judgeErrors, judge_model: judgeModel }
+      : null,
     median_latency_ms: medianLatency,
     total_tokens: totalTokens,
     runs,
