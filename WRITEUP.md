@@ -33,10 +33,10 @@ outage cannot lose a ticket, since the API returns a degraded escalation rather 
 
 ## Trade-offs under time
 
-**Cut:** streaming, auth, deployment, a UI (all worth no points here). Embeddings retrieval.
-LLM-as-judge for groundedness. A sweeper for rows stuck in `executing`. Rate limits and cost
-caps. Replaying prior turns' tool transcripts: only the previous decision is summarised, so
-tokens grow linearly rather than quadratically.
+**Cut:** streaming, auth, deployment, a UI (all worth no points here). Embeddings retrieval. A
+sweeper for rows stuck in `executing`. Rate limits and cost caps. Replaying prior turns' tool
+transcripts: only the previous decision is summarised, so tokens grow linearly rather than
+quadratically.
 
 **What the tests caught.** 133 unit tests and 29 end-to-end tests pass. The end-to-end suite
 found approving an already-*rejected* refund returning success instead of `409`. Following
@@ -46,21 +46,31 @@ grader running against an empty database. **No accuracy number is claimed and th
 prompt is v1-unverified.** The eval set exists so that the first hour with a key produces
 numbers instead of impressions.
 
-**With another week,** in order: make approval execution asynchronous so an operator's
-request does not wait on the payment provider; add the stuck-row sweeper; replace the
-keyword injection detector with a classifier and grow the pattern set from real traffic; add
-an LLM-as-judge for groundedness and a golden set built from real human disagreements; cost
-budgets and provider fallback; then auth.
+**With another week,** in order: make approval execution asynchronous so an operator's request
+does not wait on the payment provider; add the stuck-row sweeper; replace the keyword
+injection detector with a classifier; grow a golden set from real human disagreements and
+judge it with a stronger model than the one being judged; cost budgets and provider fallback;
+then auth.
 
 ## What the live eval measured
 
-20 runs over 10 labelled tickets against `gpt-4.1-mini`, `--repeat 2`. Every check passes on
-every run: classification 100% within its accepted label sets, 20/20 structurally valid, zero
-safety violations, ~7 s and ~7.9k tokens per ticket. The only variation left is one ticket
-scoring `high` on one run and `medium` on the next, both inside the accepted band.
+30 runs over 10 labelled tickets against `gpt-4.1-mini`, `--repeat 3`. Every check passes on
+every run: classification 100% within its accepted label sets, 30/30 structurally valid, zero
+safety violations, ~6 s and ~8k tokens per ticket. Two tickets vary run to run, both inside
+their accepted band — the single blocked user on a healthy region, and the injection ticket,
+whose urgency moves between `high` and `medium` while its `next_action` stays
+`escalate_to_human` every time.
+
+No guard can check whether the reply says what the evidence says: a draft can cite release 4.2
+while the account is on 4.1 and every schema and test here passes it. `--judge` adds an
+LLM-as-judge over the draft and the gathered evidence, and judges 27 of 29 drafts grounded. It
+stays out of the request path and its verdict is advisory, because a non-deterministic judge
+cannot gate a non-deterministic system — it is an instrument, and instruments get calibrated
+before they are quoted. Nine known-answer cases check that it discriminates, since a judge
+that approves everything scores 100% and is worth nothing.
 
 Classification was never the hard part. **Tool-call completeness was**, and it took three
-prompt versions and four rules in code to get from 6/10 clean runs to 20/20. The blow-by-blow
+prompt versions and four rules in code to get from 6/10 clean runs to 30/30. The blow-by-blow
 is in [eval/FINDINGS.md](eval/FINDINGS.md); the lesson is one sentence: **behaviour that must
 be reliable does not belong in a prompt.** Prompt v1 triaged ticket 1 perfectly and then
 called no tools at all, because "you may never move money" reads to a cautious model as "do
@@ -70,10 +80,9 @@ against all three charges and choosing `auto_respond` to tell the customer the m
 its way — nothing moved, because `issue_refund` is unreachable without a human and the guard
 rewrote the action, but an operator rubber-stamping approvals would have refunded everything.
 
-So paging, injection flagging, answer grounding, and the holding-reply check became rules in
-code, and two of those rules were wrong on their first attempt. Both mistakes were caught by
-re-running the harness rather than by reasoning, which is the whole case for keeping it cheap
-to run.
+So paging, injection flagging, answer grounding and the holding-reply check became rules in
+code — and two of those rules were wrong on their first attempt, both caught by re-running the
+harness rather than by reasoning.
 
 ## Failure modes, ticket by ticket
 

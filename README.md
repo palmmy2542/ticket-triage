@@ -262,6 +262,8 @@ pnpm eval                        # full labelled set against OPENAI_MODEL
 pnpm eval -- --model gpt-4.1     # compare models on the same labels
 pnpm eval -- --case t2 --verbose  # one ticket, with tool/policy events
 pnpm eval -- --repeat 3          # measure how often the same ticket flips
+pnpm eval -- --judge             # add an LLM-as-judge pass on reply groundedness
+pnpm eval -- --judge --judge-selftest   # check the judge discriminates before trusting it
 pnpm eval -- --fake              # no key: proves the harness, not the model
 ```
 
@@ -274,23 +276,50 @@ It reports accuracy per field, tool recall, side-effect counts, median latency, 
 ticket, and — separately and fatally — safety violations. Accuracy is a number to look at;
 a refund executing without a human is a failed run and a non-zero exit code.
 
+### Groundedness: an LLM-as-judge
+
+The deterministic guards can force a relevant article to exist behind an auto-response. They
+cannot check that the draft says what the article says: a reply can cite release 4.2 while the
+account is on 4.1 and every schema, guard and test in this repo will pass it. `--judge` runs a
+second model over the draft and the evidence actually gathered, asking one question: does this
+assert anything the evidence does not contain?
+
+Three deliberate limits. It runs in the harness and **never in the request path**, because
+judging every reply would double cost and latency on the happy path and add a dependency that
+can fail. Its verdict is **advisory** and never fails the run, because a non-deterministic
+judge cannot be the gate for a non-deterministic system. And it sees the ticket, the customer
+profile, the tool evidence and the draft, but **not the model's own rationale**, which would
+invite it to accept the model's justification instead of checking the claim.
+
+A judge that says "grounded" to everything scores 100% and is worth nothing, so
+`--judge-selftest` runs it against nine known-answer cases first. It currently scores 9/9,
+including the distinction that matters most here: "we have filed a refund request" is
+supported by a pending refund, while "we have refunded you" contradicts it.
+
 ### Baseline results
 
-`pnpm eval --repeat 2` against `gpt-4.1-mini`, 20 runs over the 10 labelled tickets. The full
+`pnpm eval --repeat 3 --judge` against `gpt-4.1-mini`, 30 runs over the 10 labelled tickets. The full
 report is committed at [eval/results/baseline-gpt-4.1-mini.json](eval/results/baseline-gpt-4.1-mini.json).
 
 | Metric | Result |
 | --- | --- |
 | Urgency, action, language, product area, requires_human | 100% within the accepted label sets |
-| Structurally valid decisions | 20 / 20 |
-| Runs passing every check | 20 / 20 |
+| Structurally valid decisions | 30 / 30 |
+| Runs passing every check | 30 / 30 |
 | Safety violations | 0 |
-| Median latency | 7.3 s |
-| Tokens per ticket | ~7,900 |
+| Reply drafts judged grounded (advisory) | 27 / 29 |
+| Median latency | 6.5 s |
+| Tokens per ticket | ~8,000 |
 
-Every check passes on every run. The only remaining run-to-run variation is one ticket
-scoring `high` on one run and `medium` on the next, both inside the accepted band for a
-single blocked user.
+Every check passes on every run. Two tickets vary run to run, both inside their accepted
+band: the single blocked user on a healthy region scores `medium` twice and `high` once, and
+the injection ticket scores `high` twice and `medium` once — while its `next_action` stays
+`escalate_to_human` on all three, which is the part that matters.
+
+The judge flags two of the 29 drafts it could assess, one of them as contradicting the
+evidence. Its own false-positive rate is visible in that number: it occasionally calls a
+policy statement like "a human must review this before any refund" an unsupported claim, which
+is why the verdict is advisory and why the calibration set exists.
 
 Getting here took three prompt versions and four rules in code.
 [eval/FINDINGS.md](eval/FINDINGS.md) records what each round measured, including the two rules
