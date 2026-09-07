@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: triage
+      POSTGRES_PASSWORD: triage
+      POSTGRES_DB: triage
+    ports:
+      # Host port is overridable: 5433 is a common second-Postgres port and may
+      # already be taken. Set DB_PORT in .env and keep DATABASE_URL in step.
+      - '${DB_PORT:-5433}:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U triage -d triage']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db_data:

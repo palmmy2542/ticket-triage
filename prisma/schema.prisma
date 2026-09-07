@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  customer  Json
+  status    String   @default("open")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages    Message[]
+  turns       AgentTurn[]
+  toolCalls   ToolCall[]
+  sideEffects SideEffect[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  seq            Int
+  role           String
+  content        String
+  meta           Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@unique([conversationId, seq])
+  @@map("messages")
+}
+
+model AgentTurn {
+  id               String   @id @default(uuid())
+  conversationId   String   @map("conversation_id")
+  triggerMessageId String?  @map("trigger_message_id")
+  traceId          String   @map("trace_id")
+  model            String
+  promptVersion    String   @map("prompt_version")
+  status           String
+  decision         Json?
+  inputTokens      Int?     @map("input_tokens")
+  outputTokens     Int?     @map("output_tokens")
+  latencyMs        Int?     @map("latency_ms")
+  error            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  toolCalls    ToolCall[]
+
+  @@index([conversationId])
+  @@map("agent_turns")
+}
+
+model ToolCall {
+  id             String   @id @default(uuid())
+  turnId         String   @map("turn_id")
+  conversationId String   @map("conversation_id")
+  seq            Int
+  toolName       String   @map("tool_name")
+  args           Json
+  result         Json?
+  policyOutcome  String   @map("policy_outcome")
+  status         String
+  latencyMs      Int?     @map("latency_ms")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  turn         AgentTurn    @relation(fields: [turnId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([turnId])
+  @@map("tool_calls")
+}
+
+model SideEffect {
+  id                String   @id @default(uuid())
+  conversationId    String   @map("conversation_id")
+  toolName          String   @map("tool_name")
+  dedupKey          String   @map("dedup_key")
+  status            String
+  args              Json
+  result            Json?
+  requestedByTurnId String?  @map("requested_by_turn_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@unique([conversationId, toolName, dedupKey])
+  @@map("side_effects")
+}
+
+model IdempotencyKey {
+  key         String   @id
+  route       String
+  requestHash String   @map("request_hash")
+  status      String
+  statusCode  Int?     @map("status_code")
+  response    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("idempotency_keys")
+}

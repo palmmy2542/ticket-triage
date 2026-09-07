@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+coverage
+*.log
+.DS_Store
+prisma/*.db
+
+# Eval reports are machine-specific and need an API key to produce
+eval/results/*.json
