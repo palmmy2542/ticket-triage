@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/prompt && cp src/agent/prompt/*.md dist/agent/prompt/",
     "start": "node dist/main.js",
     "start:dev": "node --env-file=.env --watch -r ts-node/register src/main.ts",
