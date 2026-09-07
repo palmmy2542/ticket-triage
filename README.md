@@ -262,8 +262,8 @@ pnpm eval                        # full labelled set against OPENAI_MODEL
 pnpm eval -- --model gpt-4.1     # compare models on the same labels
 pnpm eval -- --case t2 --verbose  # one ticket, with tool/policy events
 pnpm eval -- --repeat 3          # measure how often the same ticket flips
-pnpm eval -- --judge             # add an LLM-as-judge pass on reply groundedness
-pnpm eval -- --judge --judge-selftest   # check the judge discriminates before trusting it
+pnpm eval -- --judge --judge-model gpt-4.1   # groundedness, judged by a stronger model
+pnpm eval -- --judge --judge-selftest        # check the judge discriminates before trusting it
 pnpm eval -- --fake              # no key: proves the harness, not the model
 ```
 
@@ -292,14 +292,24 @@ profile, the tool evidence and the draft, but **not the model's own rationale**,
 invite it to accept the model's justification instead of checking the claim.
 
 A judge that says "grounded" to everything scores 100% and is worth nothing, so
-`--judge-selftest` runs it against nine known-answer cases first. It currently scores 9/9,
-including the distinction that matters most here: "we have filed a refund request" is
-supported by a pending refund, while "we have refunded you" contradicts it.
+`--judge-selftest` runs it against ten known-answer cases first, including the distinction
+that matters most here: "we have filed a refund request" is supported by a pending refund,
+while "we have refunded you" contradicts it.
+
+**Use a stronger model than the one being judged.** On that calibration set `gpt-4.1` scores
+10/10 and `gpt-4.1-mini` scores 9/10, and the case the cheaper model misses is the one where a
+draft promises "a colleague will approve it shortly" — a pending approval establishes that
+approval is *required*, never that it will be granted. On the full set the stronger judge also
+caught a draft claiming "we have initiated the refund process" while the refunds sat unapproved,
+and one telling a customer all three charges were duplicates while only two refunds were filed.
+Both were invisible to the cheaper judge. `--judge-model` exists for exactly this, and the
+report records which model judged.
 
 ### Baseline results
 
-`pnpm eval --repeat 3 --judge` against `gpt-4.1-mini`, 30 runs over the 10 labelled tickets. The full
-report is committed at [eval/results/baseline-gpt-4.1-mini.json](eval/results/baseline-gpt-4.1-mini.json).
+`pnpm eval --repeat 3 --judge --judge-model gpt-4.1` against `gpt-4.1-mini`, 30 runs over the
+10 labelled tickets, groundedness judged by `gpt-4.1`. The full report is committed at
+[eval/results/baseline-gpt-4.1-mini-judged-by-gpt-4.1.json](eval/results/baseline-gpt-4.1-mini-judged-by-gpt-4.1.json).
 
 | Metric | Result |
 | --- | --- |
@@ -307,8 +317,8 @@ report is committed at [eval/results/baseline-gpt-4.1-mini.json](eval/results/ba
 | Structurally valid decisions | 30 / 30 |
 | Runs passing every check | 30 / 30 |
 | Safety violations | 0 |
-| Reply drafts judged grounded (advisory) | 27 / 29 |
-| Median latency | 6.5 s |
+| Reply drafts judged grounded (advisory, by `gpt-4.1`) | 25 / 28 |
+| Median latency | 7.4 s |
 | Tokens per ticket | ~8,000 |
 
 Every check passes on every run. Two tickets vary run to run, both inside their accepted
@@ -316,10 +326,11 @@ band: the single blocked user on a healthy region scores `medium` twice and `hig
 the injection ticket scores `high` twice and `medium` once — while its `next_action` stays
 `escalate_to_human` on all three, which is the part that matters.
 
-The judge flags two of the 29 drafts it could assess, one of them as contradicting the
-evidence. Its own false-positive rate is visible in that number: it occasionally calls a
-policy statement like "a human must review this before any refund" an unsupported claim, which
-is why the verdict is advisory and why the calibration set exists.
+The judge flags three of the 28 drafts it could assess, none as contradicting the evidence.
+Its own false-positive rate is visible in that number: it reads "a support agent will contact
+you shortly" as an unsupported claim even though the instructions tell it to ignore statements
+about what support will do next. That is why the verdict is advisory and why the calibration
+set exists.
 
 Getting here took three prompt versions and four rules in code.
 [eval/FINDINGS.md](eval/FINDINGS.md) records what each round measured, including the two rules
