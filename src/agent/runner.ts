@@ -653,6 +653,43 @@ export function applyGuards(input: {
   if (nextAction === 'auto_respond' && !base.customer_reply_draft?.trim()) {
     escalate('auto_respond_without_draft: no reply text was produced');
   }
+
+  // An auto-response is customer-facing text sent with no human in the loop, so
+  // it has to be grounded in something we looked up rather than in the model's
+  // memory of how some other product works. Only question-shaped tickets are
+  // gated: a decision built from account or status data is already grounded.
+  const GROUNDABLE: ReadonlyArray<ModelDecision['issue_type']> = [
+    'question',
+    'how_to',
+    'feature_request',
+    'bug',
+  ];
+  // A search that returned nothing is not grounding. The first version of this
+  // guard only checked that a search happened, and a live run auto-answered a
+  // "I cannot log in at all" ticket off an empty result set - which is exactly
+  // the failure the prompt warns about and the guard was supposed to catch.
+  const searchedKb = records.some(
+    (record) =>
+      record.toolName === 'search_knowledge_base' &&
+      record.status === 'succeeded' &&
+      ((record.result as { result_count?: number } | undefined)?.result_count ?? 0) > 0,
+  );
+  if (nextAction === 'auto_respond' && GROUNDABLE.includes(base.issue_type) && !searchedKb) {
+    // Routed rather than escalated: it is an unverified answer, not an incident.
+    nextAction = 'route_to_specialist';
+    notes.push('ungrounded_auto_respond: no knowledge base result behind the reply');
+  }
+
+  // A holding reply is a communication quality problem, not a safety one, so it
+  // is flagged for the operator rather than fabricated here. Code cannot write
+  // it: the message has to be in the customer's language and reflect the
+  // specific evidence.
+  if (
+    (base.urgency === 'critical' || base.urgency === 'high') &&
+    !base.customer_reply_draft?.trim()
+  ) {
+    notes.push('missing_holding_reply: no draft for the customer on an urgent ticket');
+  }
   if (nextAction === 'route_to_specialist' && !specialistTeam?.trim()) {
     specialistTeam = 'general_support';
     notes.push('missing_specialist_team: defaulted to general_support');

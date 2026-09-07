@@ -50,11 +50,28 @@ export function scoreDoc(doc: KbDoc, queryTokens: string[]): number {
   return score / (new Set(queryTokens).size * 3);
 }
 
+/**
+ * Minimum score for a result to be worth showing the model.
+ *
+ * The observed distribution is bimodal and the gap is an order of magnitude:
+ * real answers score 0.67-1.2 ("dark mode toggle settings appearance" -> 1.2,
+ * "API rate limit 429" -> 1.11, "payment failed duplicate charge" -> 0.67),
+ * while incidental single-token overlap scores 0.056-0.083 ("cannot log in
+ * spinner forever" -> the billing doc at 0.083).
+ *
+ * The floor exists because telling the model "ignore low scores" did not work:
+ * on a live run it answered a blocked-login ticket from a 0.083 match. Not
+ * returning noise is more reliable than asking the model to disregard it, and it
+ * makes `result_count` mean "we found something relevant", which the grounding
+ * guard in runner.ts depends on.
+ */
+export const MIN_RELEVANCE = 0.25;
+
 export function searchKb(query: string, limit: number, docs: KbDoc[] = KB_DOCS) {
   const tokens = tokenize(query);
   return docs
     .map((doc) => ({ doc, score: Number(scoreDoc(doc, tokens).toFixed(3)) }))
-    .filter((r) => r.score > 0)
+    .filter((r) => r.score >= MIN_RELEVANCE)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map(({ doc, score }) => ({
@@ -72,9 +89,9 @@ export function createSearchKnowledgeBaseTool(config: MockToolConfig): ToolDescr
     name: 'search_knowledge_base',
     description:
       'Search the support knowledge base for FAQ and troubleshooting articles. Use it before ' +
-      'answering any product, how-to, or configuration question. Results include a relevance ' +
-      'score; a low score means the article probably does not answer the ticket, so do not ' +
-      'build an answer on it.',
+      'answering any product, how-to, or configuration question. Articles below a relevance ' +
+      'threshold are not returned at all, so an empty result means the knowledge base does not ' +
+      'cover this ticket and you should route it to a human rather than answer from memory.',
     args: Args,
     autonomy: 'auto',
     sideEffecting: false,

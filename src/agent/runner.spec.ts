@@ -570,6 +570,176 @@ describe('runTurn - auto-respond is still possible', () => {
     expect(result.decision.guard_notes).toContain('auto_respond_without_draft: no reply text was produced');
   });
 
+  it('will not auto-respond to a question with nothing looked up behind it', async () => {
+    // Measured live: on one run the model answered an API rate-limit question
+    // from its own memory after checking service status. An auto-response is
+    // customer-facing text with no human in the loop, so it has to be grounded.
+    const h = harness([
+      { kind: 'tools', calls: [{ name: 'check_service_status', args: { region: null } }] },
+      {
+        kind: 'decision',
+        decision: decisionFixture({
+          issue_type: 'question',
+          product_area: 'api',
+          next_action: 'auto_respond',
+          customer_reply_draft: 'The API allows 600 requests per minute on Pro.',
+        }),
+      },
+    ]);
+
+    const result = await runTurn({
+      conversationId: 'conv_ground_1',
+      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      messages: customerMessages(['We are getting HTTP 429 from your API during our nightly sync.']),
+      now: NOW,
+      ...h,
+    });
+
+    expect(result.decision.next_action).toBe('route_to_specialist');
+    expect(result.decision.requires_human).toBe(true);
+    expect(result.decision.guard_notes).toContain(
+      'ungrounded_auto_respond: no knowledge base result behind the reply',
+    );
+  });
+
+  it('allows an auto-response once the knowledge base was actually consulted', async () => {
+    const h = harness([
+      { kind: 'tools', calls: [{ name: 'search_knowledge_base', args: { query: 'api rate limit 429', limit: null } }] },
+      { kind: 'decision', decision: decisionFixture({ issue_type: 'question', product_area: 'api' }) },
+    ]);
+
+    const result = await runTurn({
+      conversationId: 'conv_ground_2',
+      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      messages: customerMessages(['Is there a rate limit on the API?']),
+      now: NOW,
+      ...h,
+    });
+
+    expect(result.decision.next_action).toBe('auto_respond');
+    expect(result.decision.guard_notes).toEqual([]);
+  });
+
+  it('treats an empty knowledge base result as no grounding at all', async () => {
+    // The KB has nothing about login failures, so a search that returns zero
+    // results must not license an auto-response built on it.
+    const h = harness([
+      {
+        kind: 'tools',
+        calls: [{ name: 'search_knowledge_base', args: { query: 'cannot log in spinner forever', limit: null } }],
+      },
+      {
+        kind: 'decision',
+        decision: decisionFixture({
+          issue_type: 'bug',
+          product_area: 'account',
+          next_action: 'auto_respond',
+          customer_reply_draft: 'Please try clearing your cache.',
+        }),
+      },
+    ]);
+
+    const result = await runTurn({
+      conversationId: 'conv_ground_4',
+      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      messages: customerMessages(['I cannot log in at all, it just spins forever.']),
+      now: NOW,
+      ...h,
+    });
+
+    // Proves the search really did come back empty, so the assertion below is
+    // about the guard and not about the fixture.
+    expect(result.toolCalls[0]!.result).toMatchObject({ result_count: 0 });
+    expect(result.decision.next_action).toBe('route_to_specialist');
+    expect(result.decision.guard_notes).toContain(
+      'ungrounded_auto_respond: no knowledge base result behind the reply',
+    );
+  });
+
+  it('does not gate a decision built from account data', async () => {
+    // A billing dispute answered from get_customer_account is already grounded;
+    // requiring a KB hit for everything would be the wrong rule.
+    const h = harness([
+      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'decision',
+        decision: decisionFixture({
+          issue_type: 'billing_dispute',
+          product_area: 'billing',
+          next_action: 'auto_respond',
+          customer_reply_draft: 'Your three charges are confirmed and a refund is being arranged.',
+        }),
+      },
+    ]);
+
+    const result = await runTurn({
+      conversationId: 'conv_ground_3',
+      customer: FREE_CUSTOMER,
+      messages: customerMessages(['what were those charges?']),
+      now: NOW,
+      ...h,
+    });
+
+    expect(result.decision.next_action).toBe('auto_respond');
+  });
+
+  it('flags an urgent ticket that leaves the customer with no holding reply', async () => {
+    // Measured live: the Thai outage was escalated correctly with no draft at
+    // all, leaving a 45-seat account in silence while the ticket queued.
+    const h = harness([
+      {
+        kind: 'decision',
+        decision: decisionFixture({
+          urgency: 'critical',
+          issue_type: 'outage',
+          product_area: 'platform',
+          language: 'th',
+          next_action: 'escalate_to_human',
+          customer_reply_draft: null,
+        }),
+      },
+    ]);
+
+    const result = await runTurn({
+      conversationId: 'conv_hold_1',
+      customer: ENTERPRISE_CUSTOMER,
+      messages: customerMessages(['ระบบเข้าไม่ได้ครับ']),
+      now: NOW,
+      ...h,
+    });
+
+    expect(result.decision.guard_notes).toContain(
+      'missing_holding_reply: no draft for the customer on an urgent ticket',
+    );
+    // Flagged, not fabricated: code cannot write the customer's language for it.
+    expect(result.decision.customer_reply_draft).toBeNull();
+  });
+
+  it('does not flag an urgent ticket that has a holding reply', async () => {
+    const h = harness([
+      {
+        kind: 'decision',
+        decision: decisionFixture({
+          urgency: 'critical',
+          issue_type: 'outage',
+          language: 'th',
+          next_action: 'escalate_to_human',
+          customer_reply_draft: 'เราพบปัญหาในภูมิภาคของคุณ ทีมงานกำลังแก้ไขอยู่ครับ',
+        }),
+      },
+    ]);
+
+    const result = await runTurn({
+      conversationId: 'conv_hold_2',
+      customer: ENTERPRISE_CUSTOMER,
+      messages: customerMessages(['ระบบเข้าไม่ได้ครับ']),
+      now: NOW,
+      ...h,
+    });
+
+    expect(result.decision.guard_notes).toEqual([]);
+  });
+
   it('never auto-responds to a critical ticket', async () => {
     const h = harness([
       { kind: 'decision', decision: decisionFixture({ urgency: 'critical', customer_reply_draft: 'we are on it' }) },
