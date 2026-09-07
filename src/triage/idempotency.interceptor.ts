@@ -94,6 +94,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
       catchError((error: unknown) =>
         // Release the key so the client can legitimately retry a failed request.
         // Leaving it as `in_progress` would wedge that key forever.
+        //
+        // Trade-off, taken knowingly: if a handler failed *after* writing rows,
+        // a retry can create a second conversation. That is currently
+        // unreachable through this API - the runner converts every model and
+        // tool failure into a degraded success - so the only realistic failure
+        // is a database outage, where nothing was written. The alternative
+        // (keep the key) turns a transient blip into a permanently dead key.
         from(
           this.prisma.idempotencyKey.delete({ where: { key } }).catch(() => undefined),
         ).pipe(concatMap(() => throwError(() => error))),

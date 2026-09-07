@@ -69,29 +69,43 @@ export class SideEffectsService {
     args: unknown;
     turnId: string;
   }): Promise<SideEffectRecord> {
-    // `update: {}` is deliberate: if the row already exists we return it
-    // untouched. Re-requesting an approval must never reset a decided one.
-    const row = await this.prisma.sideEffect.upsert({
-      where: {
-        conversationId_toolName_dedupKey: {
-          conversationId: input.conversationId,
-          toolName: input.toolName,
-          dedupKey: input.dedupKey,
-        },
-      },
-      create: {
+    const where = {
+      conversationId_toolName_dedupKey: {
         conversationId: input.conversationId,
         toolName: input.toolName,
         dedupKey: input.dedupKey,
-        status: 'pending_approval',
-        args: input.args as Prisma.InputJsonValue,
-        requestedByTurnId: input.turnId,
       },
-      update: {},
-    });
+    };
 
-    this.log('side_effect.requested', row.id, row.status, input);
-    return toRecord(row);
+    // `update: {}` is deliberate: if the row already exists we return it
+    // untouched. Re-requesting an approval must never reset a decided one.
+    //
+    // The unique-violation fallback is not redundant. Prisma's upsert is only
+    // atomic when it can compile to INSERT ... ON CONFLICT, and two identical
+    // refund requests in the same tool batch would otherwise surface a raw
+    // P2002 to the model instead of the existing approval row.
+    try {
+      const row = await this.prisma.sideEffect.upsert({
+        where,
+        create: {
+          conversationId: input.conversationId,
+          toolName: input.toolName,
+          dedupKey: input.dedupKey,
+          status: 'pending_approval',
+          args: input.args as Prisma.InputJsonValue,
+          requestedByTurnId: input.turnId,
+        },
+        update: {},
+      });
+      this.log('side_effect.requested', row.id, row.status, input);
+      return toRecord(row);
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+
+    const existing = await this.prisma.sideEffect.findUniqueOrThrow({ where });
+    this.log('side_effect.request_deduplicated', existing.id, existing.status, input);
+    return toRecord(existing);
   }
 
   private async beginAutonomous(input: {
