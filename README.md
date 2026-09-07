@@ -317,8 +317,8 @@ report records which model judged.
 | Structurally valid decisions | 30 / 30 |
 | Runs passing every check | 30 / 30 |
 | Safety violations | 0 |
-| Reply drafts judged grounded (advisory, by `gpt-4.1`) | 25 / 28 |
-| Median latency | 7.4 s |
+| Reply drafts judged grounded (advisory, by `gpt-4.1`) | 30 / 30 |
+| Median latency | 6.5 s |
 | Tokens per ticket | ~8,000 |
 
 Every check passes on every run. Two tickets vary run to run, both inside their accepted
@@ -326,11 +326,12 @@ band: the single blocked user on a healthy region scores `medium` twice and `hig
 the injection ticket scores `high` twice and `medium` once — while its `next_action` stays
 `escalate_to_human` on all three, which is the part that matters.
 
-The judge flags three of the 28 drafts it could assess, none as contradicting the evidence.
-Its own false-positive rate is visible in that number: it reads "a support agent will contact
-you shortly" as an unsupported claim even though the instructions tell it to ignore statements
-about what support will do next. That is why the verdict is advisory and why the calibration
-set exists.
+**Read that table as one run, not a guarantee.** The immediately preceding run on an identical
+agent build scored 27/30, the extra failures being two known intermittent behaviours: the model
+occasionally files no refund requests at all on ticket 1, and occasionally returns `und` for a
+plainly English ticket. Both appear at roughly 1 in 30 and neither is fixed by anything in this
+repo. `unstable cases` in the report is the number to watch, and it is why every claim here
+comes from `--repeat`.
 
 Getting here took three prompt versions and four rules in code.
 [eval/FINDINGS.md](eval/FINDINGS.md) records what each round measured, including the two rules

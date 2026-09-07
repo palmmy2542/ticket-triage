@@ -53,35 +53,34 @@ then auth.
 
 ## What the live eval measured
 
-30 runs over 10 labelled tickets against `gpt-4.1-mini`, `--repeat 3`. Every check passes on
-every run: classification 100% within its accepted label sets, 30/30 structurally valid, zero
-safety violations, ~6 s and ~8k tokens per ticket. Two tickets vary run to run, both inside
-their accepted band, and the injection ticket's `next_action` stays `escalate_to_human` every
-time.
+30 runs over 10 labelled tickets against `gpt-4.1-mini`, `--repeat 3`: every classification
+field inside its accepted label set on every run, zero safety violations, ~6 s and ~8k tokens
+per ticket. Read that as one run rather than a guarantee — the run before it, on an identical
+build, scored 27/30 on two intermittent behaviours that survive everything here: the model
+occasionally files no refund requests on ticket 1, and occasionally returns `und` for a plainly
+English ticket.
 
-Classification was never the hard part. **Tool-call completeness was**, and it took three
-prompt versions and four rules in code to get from 6/10 clean runs to 30/30.
-[eval/FINDINGS.md](eval/FINDINGS.md) is the blow-by-blow; the lesson is one sentence:
-**behaviour that must be reliable does not belong in a prompt.** Prompt v1 triaged ticket 1
-perfectly and then called no tools at all, because "you may never move money" reads to a
-cautious model as "do not touch this tool". Ticket 2 wrote "confirming a real regional outage"
-and paged nobody in a third of runs. And on ticket 5 the model **complied with the injection**,
-filing refunds against all three charges and choosing `auto_respond` to tell the customer the
-money was on its way — nothing moved, because `issue_refund` is unreachable without a human and
-the guard rewrote the action, but an operator rubber-stamping approvals would have refunded
-everything. So paging, injection flagging, answer grounding and the holding-reply check became
-rules in code, and two of those rules were wrong on their first attempt, both caught by
-re-running the harness rather than by reasoning.
+Classification was never the hard part. **Tool-call completeness was**, and it took four prompt
+versions and four rules in code to go from 6/10 clean runs to 30/30, with
+[eval/FINDINGS.md](eval/FINDINGS.md) as the blow-by-blow. The lesson is one sentence:
+**behaviour that must be reliable does not belong in a prompt.** v1 triaged ticket 1 perfectly
+then called no tools at all, because "you may never move money" reads to a cautious model as "do
+not touch this tool". Ticket 2 wrote "confirming a real regional outage" and paged nobody in a
+third of runs. On ticket 5 the model **complied with the injection**, filing refunds against all
+three charges and choosing `auto_respond` to tell the customer the money was on its way — and
+nothing moved, because `issue_refund` is unreachable without a human and the guard rewrote the
+action. Paging, injection flagging, answer grounding and the holding-reply check are now rules
+in code; two of them were wrong on their first attempt, both caught by re-running the harness
+rather than by reasoning.
 
-No guard can check whether the reply says what the evidence says: a draft can cite release 4.2
-while the account is on 4.1 and every schema and test here passes it. `--judge` adds an
-LLM-as-judge over the draft and the gathered evidence, judged by `gpt-4.1` rather than the model
-being judged, finding 25 of 28 drafts grounded. Its verdict is advisory and it stays out of the
-request path, because a non-deterministic judge cannot gate a non-deterministic system — it is
-an instrument, and instruments get calibrated before they are quoted. Ten known-answer cases do
-that, and they earned their keep twice: the stronger judge found a case in the set that *I* had
-labelled wrong, and the judge itself turned out to be readable by the injection in a ticket it
-was judging until it was given the same untrusted-input boundary the triage prompt has.
+No guard can check whether the reply says what the evidence says, so `--judge` puts an
+LLM-as-judge over the draft and the gathered evidence, using `gpt-4.1` rather than the model
+being judged. It found the error worth finding: two refunds correctly requested out of three
+charges, and a reply telling the customer all three were duplicates. But the judge is an
+instrument, and eleven known-answer cases calibrate it because it needed correcting three times
+— it caught a case *I* had mislabelled, it was readable by the injection in a ticket it was
+judging, and it marked a correct draft wrong until given the policy that draft was written
+under. Its verdict stays advisory and out of the request path.
 
 ## Failure modes, ticket by ticket
 
@@ -112,14 +111,13 @@ tokenizer fragments Thai and the one document it matches is hit only via the ASC
 **Ticket 3 — dark mode, a bug plus a feature request, relaxed customer.** The failure is the
 opposite of ticket 1: over-escalation. A prompt full of safety rules forwards routine how-to
 questions to humans and destroys the product's value, so the prompt carries explicit
-counter-pressure ("escalating is not free") and the eval asserts `auto_respond` — clean in
-every live run, secondary topic captured. Second: a single `issue_type` would drop the
+counter-pressure ("escalating is not free") and the eval asserts `auto_respond`, clean in every
+live run with the secondary topic captured. Second: a single `issue_type` would drop the
 scheduling request, so the schema carries `secondary_topics`. Third: this ticket is only
-answerable because the account lookup reveals release `4.1.3` while the KB article explains
-the toggle ships in `4.2`. A model answering from the article without checking the release
-would confidently tell a paying customer dark mode does not exist — the grounding guard
-forces a relevant article to exist, but not that it was read correctly, which is what an
-LLM-as-judge would be for.
+answerable because the account lookup reveals release `4.1.3` while the KB article explains the
+toggle ships in `4.2`. A model answering from the article without checking the release would
+confidently tell a paying customer dark mode does not exist — the grounding guard forces a
+relevant article to exist, and the judge checks it was read correctly.
 
 ## Measuring this in production
 

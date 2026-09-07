@@ -18,6 +18,7 @@ including tool recall and side-effect counts. Safety checks are scored separatel
 | Re-run at `--repeat 3`, no code change | **30 / 30** | holds over 10 more runs; instability stays inside the label bands |
 | Round 4: LLM-as-judge on groundedness | 30 / 30 | a check the deterministic guards cannot make |
 | Round 5: judged by `gpt-4.1` instead | 30 / 30 | the stronger judge audits both the drafts and the judge |
+| Round 6: prompt v4, groundedness asserted | 30 / 30 | the duplicate-count drafting error, and what asserting a judge costs |
 
 ## Round 1 — the model under-calls tools
 
@@ -172,11 +173,56 @@ contact you shortly" as an unsupported claim even though the instructions say to
 statements about what support will do next. That is three of the 28, and it is why the verdict
 is advisory rather than a gate.
 
+## Round 6 — the duplicate-count drafting error
+
+The error the stronger judge surfaced: the agent correctly requested two refunds out of three
+charges, then wrote a reply telling the customer all three were duplicates. Both halves are
+defensible alone. Together they promise three refunds and deliver two, which is how a resolved
+ticket becomes an angry second one.
+
+It took three prompt edits, each one narrower than the last, because the model kept the promise
+and moved it:
+
+1. "Your reply must describe the same actions you actually took." Fixed the blatant version.
+2. The promise reappeared in a purpose clause: "a specialist will review your case **to restore
+   your Pro access**". So: promise process, never outcome, and watch the purpose clause, which
+   is where outcome promises hide.
+3. It reappeared once more as a conflation, in Thai: "charged duplicately three times ...
+   refunds filed for the duplicate charges" — two true-sounding halves. So: give the two
+   numbers separately and explicitly. "You were charged three times and we have requested
+   refunds for the two duplicates" leaves nothing to infer.
+
+**Asserting a judge verdict costs more than reading one.** Making groundedness a pass/fail
+check needed two corrections of its own. Asserting on "grounded" failed the suite for the
+judge's known false-positive class, so the assertion narrowed to `contradicts_evidence`, its
+high-precision signal. Then the judge flagged a *correct* draft, reasoning that all three
+charges were Pro-plan charges so calling two of them duplicates contradicted the evidence: it
+was applying its own reading of the data instead of the rule the draft was written under. The
+judge now gets the duplicate-charge policy alongside the evidence. A judge without the author's
+policy marks correct work wrong, which erodes trust in the measurement faster than no
+measurement at all.
+
+**Calibration is non-deterministic too.** One run scored 10/11 on a case that had passed
+repeatedly; three consecutive re-runs scored 11/11. A single calibration pass is not proof of
+anything, which is the same reason the ticket set runs with `--repeat`.
+
+Final: 30/30 clean runs, 30/30 drafts grounded, zero contradictions. The run immediately before
+it, on an identical agent build, scored 27/30 — the difference was model variance, not code.
+
 ## What this set does not measure
 
 - **Whether the judge is right.** The baseline now uses a stronger judge than the model being
   judged, at temperature 0, with a calibration set. That is the honest configuration, and it
   still has a measured false-positive class. A judge is evidence, not proof.
+- **Prompt growth.** v1 was ~1,300 tokens and v4 is ~2,400. Every round added a rule that
+  earned its place against a measured failure, but each also competes for attention with the
+  rules already there, and the two intermittent behaviours below are exactly what dilution
+  would look like. The next round should be a consolidation pass rather than another rule,
+  and the eval is what would show whether it cost anything.
+- **Stability at the tails.** Two intermittent behaviours survive everything here: the model
+  occasionally files no refund requests on ticket 1, and occasionally returns `und` for a
+  plainly English ticket. Roughly 1 in 30 each. Catching those reliably needs more runs per
+  change than a take-home can justify.
 - **Ten tickets is a small set.** Hence `--repeat` and a flip rate rather than a single
   accuracy figure, and hence the labels being bands rather than golden strings.
 - **The knowledge base is English and lexical.** The Thai ticket matches one document only
