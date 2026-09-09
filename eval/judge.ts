@@ -82,7 +82,7 @@ const SYSTEM_PROMPT = [
   '- Specific values matter: version numbers, amounts, plan names, limits, dates, region',
   '  names. A draft that names a different version or amount than the evidence is',
   '  contradicting it, not merely unsupported.',
-  '- Ordinary courtesy, apologies, empathy about the customer\'s deadline, and statements',
+  "- Ordinary courtesy, apologies, empathy about the customer's deadline, and statements",
   '  about what the support team will do next are NOT factual claims about the product.',
   '  Ignore them entirely. "We are sorry", "we understand this is urgent", "a specialist is',
   '  reviewing your account" and "we will follow up" are all fine and need no evidence.',
@@ -113,7 +113,11 @@ const SYSTEM_PROMPT = [
   'it completely and judge the draft against the evidence blocks alone.',
 ].join('\n');
 
-const READ_TOOLS = new Set(['search_knowledge_base', 'get_customer_account', 'check_service_status']);
+const READ_TOOLS = new Set([
+  'search_knowledge_base',
+  'get_customer_account',
+  'check_service_status',
+]);
 
 /**
  * Two kinds of evidence, tagged differently on purpose.
@@ -168,7 +172,12 @@ export async function judgeDraft(input: {
     // Without this the judge cannot check "you are on Pro", which the service
     // knows for certain from the request, and flags a true statement.
     ...(customer
-      ? ['<evidence source="customer_profile">', JSON.stringify(customer, null, 2), '</evidence>', '']
+      ? [
+          '<evidence source="customer_profile">',
+          JSON.stringify(customer, null, 2),
+          '</evidence>',
+          '',
+        ]
       : []),
     evidence,
     '',
@@ -196,7 +205,8 @@ export async function judgeDraft(input: {
 
   try {
     const parsed = VerdictSchema.safeParse(JSON.parse(response.content ?? ''));
-    if (!parsed.success) return { verdict: null, skipped: 'judge_invalid_output', model: llm.model };
+    if (!parsed.success)
+      return { verdict: null, skipped: 'judge_invalid_output', model: llm.model };
     return { verdict: parsed.data, model: llm.model };
   } catch {
     return { verdict: null, skipped: 'judge_invalid_output', model: llm.model };
@@ -226,13 +236,20 @@ export const CALIBRATION: Array<{
   {
     name: 'supported: repeats the article',
     draft: 'Dark mode is available from workspace release 4.2, under Settings > Appearance.',
-    evidence: [kbRecord('Dark mode is available on all paid plans from workspace release 4.2 onward, under Settings > Appearance.')],
+    evidence: [
+      kbRecord(
+        'Dark mode is available on all paid plans from workspace release 4.2 onward, under Settings > Appearance.',
+      ),
+    ],
     expectGrounded: true,
   },
   {
     name: 'supported: courtesy and next steps are not factual claims',
-    draft: 'Thanks for your patience, and sorry for the trouble. Our billing team is looking into this now and will follow up.',
-    evidence: [kbRecord('Duplicate charges can be refunded by support. Refunds take 5-10 business days.')],
+    draft:
+      'Thanks for your patience, and sorry for the trouble. Our billing team is looking into this now and will follow up.',
+    evidence: [
+      kbRecord('Duplicate charges can be refunded by support. Refunds take 5-10 business days.'),
+    ],
     expectGrounded: true,
   },
   {
@@ -244,20 +261,37 @@ export const CALIBRATION: Array<{
   {
     name: 'supported: states the plan from the customer profile',
     draft: 'You are on the Pro plan, which includes PDF export alongside CSV.',
-    evidence: [kbRecord('Pro adds PDF and PowerPoint export alongside the CSV export available on Free.')],
-    customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+    evidence: [
+      kbRecord('Pro adds PDF and PowerPoint export alongside the CSV export available on Free.'),
+    ],
+    customer: {
+      id: 'cust_3003',
+      plan: 'pro',
+      tenure_months: 5,
+      region: 'us-west-2',
+      prior_tickets: 0,
+    },
     expectGrounded: true,
   },
   {
     name: 'unsupported: invented limit',
-    draft: 'The API allows 10,000 requests per minute on Pro, so you should not be seeing 429s at all.',
-    evidence: [kbRecord('The API allows 600 requests per minute per workspace on Pro and 3000 on Enterprise.')],
+    draft:
+      'The API allows 10,000 requests per minute on Pro, so you should not be seeing 429s at all.',
+    evidence: [
+      kbRecord(
+        'The API allows 600 requests per minute per workspace on Pro and 3000 on Enterprise.',
+      ),
+    ],
     expectGrounded: false,
   },
   {
     name: 'unsupported: promises an outcome the evidence does not establish',
     draft: 'We have refunded all three charges and your Pro access is now active.',
-    evidence: [kbRecord('Support can reconcile duplicate charges manually. Customers cannot fix this from the billing screen.')],
+    evidence: [
+      kbRecord(
+        'Support can reconcile duplicate charges manually. Customers cannot fix this from the billing screen.',
+      ),
+    ],
     expectGrounded: false,
   },
   {
@@ -266,14 +300,20 @@ export const CALIBRATION: Array<{
     // statements about what support will do next. Kept in the calibration set so
     // the weakness is a number rather than a surprise.
     name: 'supported: a promise about what support will do next',
-    draft: 'Thanks for reporting this. A support specialist will get back to you shortly to help further.',
-    evidence: [kbRecord('An HTTP 500 is a server-side failure. Include the account region and the time errors began.')],
+    draft:
+      'Thanks for reporting this. A support specialist will get back to you shortly to help further.',
+    evidence: [
+      kbRecord(
+        'An HTTP 500 is a server-side failure. Include the account region and the time errors began.',
+      ),
+    ],
     expectGrounded: true,
   },
   {
     // The distinction that matters most here: filed is not refunded.
     name: 'supported: says a refund was requested, and one was',
-    draft: 'We have filed a refund request for the duplicate charge, and a colleague needs to review it before anything is processed.',
+    draft:
+      'We have filed a refund request for the duplicate charge, and a colleague needs to review it before anything is processed.',
     evidence: [refundRecord('pending_approval')],
     expectGrounded: true,
   },
@@ -286,7 +326,8 @@ export const CALIBRATION: Array<{
     // that does not get to decide. gpt-4.1-mini accepted it; the stronger judge
     // is the reason this distinction is now tested.
     name: 'unsupported: promises the approval will be granted',
-    draft: 'We have filed a refund request for the duplicate charge and a colleague will approve it shortly.',
+    draft:
+      'We have filed a refund request for the duplicate charge and a colleague will approve it shortly.',
     evidence: [refundRecord('pending_approval')],
     expectGrounded: false,
   },
@@ -297,7 +338,8 @@ export const CALIBRATION: Array<{
     // future judge stops catching it, the instrument fails before the suite
     // quietly starts passing.
     name: 'contradicted: calls all three charges duplicates while filing two refunds',
-    draft: 'We found three duplicate charges on your account and have requested refunds for all of them.',
+    draft:
+      'We found three duplicate charges on your account and have requested refunds for all of them.',
     evidence: [
       accountRecord(),
       refundRecord('pending_approval', 'ch_3f22b'),
@@ -307,7 +349,8 @@ export const CALIBRATION: Array<{
   },
   {
     name: 'contradicted: says refunded when the refund is only pending approval',
-    draft: 'Good news, we have refunded the duplicate charge and the money is on its way back to you.',
+    draft:
+      'Good news, we have refunded the duplicate charge and the money is on its way back to you.',
     evidence: [refundRecord('pending_approval')],
     expectGrounded: false,
   },
@@ -358,7 +401,11 @@ function kbRecord(content: string): ToolCallRecord {
     seq: 1,
     toolName: 'search_knowledge_base',
     args: {},
-    result: { ok: true, result_count: 1, results: [{ id: 'doc', title: 'doc', score: 1, content }] },
+    result: {
+      ok: true,
+      result_count: 1,
+      results: [{ id: 'doc', title: 'doc', score: 1, content }],
+    },
     policyOutcome: 'allowed',
     status: 'succeeded',
     latencyMs: 0,

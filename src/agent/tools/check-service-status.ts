@@ -19,7 +19,7 @@ export function createCheckServiceStatusTool(
   return {
     name: 'check_service_status',
     description:
-      "Check platform health. Returns the public status page summary alongside machine probe data " +
+      'Check platform health. Returns the public status page summary alongside machine probe data ' +
       "for a single region. Omit `region` to check the customer's own region. The public page is " +
       'human-maintained and can lag a live incident, so prefer the regional probe data when they disagree.',
     args: Args,

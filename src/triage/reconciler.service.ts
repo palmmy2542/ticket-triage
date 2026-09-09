@@ -42,12 +42,7 @@
  *    That is acceptable precisely because every step is idempotent and
  *    re-claimable: the next sweep on any replica picks the row up again.
  */
-import {
-  Inject,
-  Injectable,
-  OnApplicationBootstrap,
-  OnApplicationShutdown,
-} from '@nestjs/common';
+import { Inject, Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Logger } from 'nestjs-pino';
 
@@ -182,9 +177,7 @@ export class ReconcilerService implements OnApplicationBootstrap, OnApplicationS
     const report: SweepReport = {
       staleAfterMs,
       sideEffectStaleAfterMs,
-      sideEffects: await this.sweepSideEffects(
-        new Date(now.getTime() - sideEffectStaleAfterMs),
-      ),
+      sideEffects: await this.sweepSideEffects(new Date(now.getTime() - sideEffectStaleAfterMs)),
       turns: await this.sweepTurns(cutoff),
       idempotencyKeys: {
         abandoned: await this.sweepIdempotencyKeys(cutoff),
@@ -524,75 +517,77 @@ export class ReconcilerService implements OnApplicationBootstrap, OnApplicationS
       injection: null,
     });
 
-    const wrote = await this.prisma.$transaction(async (tx): Promise<'failedSafe' | 'superseded' | null> => {
-      // FIRST, and in this order, for the reason spelled out in
-      // conversation.service.ts: every row written below carries an FK to
-      // `conversations(id)` and so takes `FOR KEY SHARE` on this same parent
-      // row. Taking the weak locks first and then upgrading deadlocks against a
-      // concurrent turn. Taking `FOR UPDATE` up front also serialises this
-      // transaction against a turn's own closing transaction, which takes the
-      // identical lock first.
-      await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${row.conversationId} FOR UPDATE`;
+    const wrote = await this.prisma.$transaction(
+      async (tx): Promise<'failedSafe' | 'superseded' | null> => {
+        // FIRST, and in this order, for the reason spelled out in
+        // conversation.service.ts: every row written below carries an FK to
+        // `conversations(id)` and so takes `FOR KEY SHARE` on this same parent
+        // row. Taking the weak locks first and then upgrading deadlocks against a
+        // concurrent turn. Taking `FOR UPDATE` up front also serialises this
+        // transaction against a turn's own closing transaction, which takes the
+        // identical lock first.
+        await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${row.conversationId} FOR UPDATE`;
 
-      // Read inside the lock, so a turn committing right now is either already
-      // visible here or blocked behind us.
-      const newer = await tx.agentTurn.findFirst({
-        where: { conversationId: row.conversationId, createdAt: { gt: row.createdAt } },
-        select: { id: true },
-      });
+        // Read inside the lock, so a turn committing right now is either already
+        // visible here or blocked behind us.
+        const newer = await tx.agentTurn.findFirst({
+          where: { conversationId: row.conversationId, createdAt: { gt: row.createdAt } },
+          select: { id: true },
+        });
 
-      // Conditional, and INSIDE the lock. If the request was in fact still
-      // alive and committed while we were deciding, its transaction moved the
-      // status off `running` and this finds nothing - so we never overwrite a
-      // real decision with a fail-safe one.
-      const claimed = await tx.agentTurn.updateMany({
-        where: { id: row.id, status: 'running' },
-        data: {
-          status: 'failed',
-          decision: newer ? undefined : (decision as unknown as Prisma.InputJsonValue),
-          error: reason,
-          latencyMs: null,
-        },
-      });
-      if (claimed.count === 0) return null;
+        // Conditional, and INSIDE the lock. If the request was in fact still
+        // alive and committed while we were deciding, its transaction moved the
+        // status off `running` and this finds nothing - so we never overwrite a
+        // real decision with a fail-safe one.
+        const claimed = await tx.agentTurn.updateMany({
+          where: { id: row.id, status: 'running' },
+          data: {
+            status: 'failed',
+            decision: newer ? undefined : (decision as unknown as Prisma.InputJsonValue),
+            error: reason,
+            latencyMs: null,
+          },
+        });
+        if (claimed.count === 0) return null;
 
-      // Superseded: the lease is released and the audit trail records why, but
-      // the conversation belongs to the turn that answered it.
-      if (newer) return 'superseded';
+        // Superseded: the lease is released and the audit trail records why, but
+        // the conversation belongs to the turn that answered it.
+        if (newer) return 'superseded';
 
-      // Read AFTER the lock: `messages` is UNIQUE on (conversation_id, seq), so
-      // reading before it is how two writers pick the same number.
-      const last = await tx.message.findFirst({
-        where: { conversationId: row.conversationId },
-        orderBy: { seq: 'desc' },
-        select: { seq: true },
-      });
-      await tx.message.create({
-        data: {
-          conversationId: row.conversationId,
-          seq: (last?.seq ?? 0) + 1,
-          role: 'agent',
-          content: decision.operator_summary,
-          // The operator summary, like every other agent row: this repairs the
-          // audit trail and the queue, it does not write to a customer.
-          visibility: 'internal',
-          meta: {
-            turn_id: row.id,
-            at: new Date().toISOString(),
-            reconciled: true,
-          } as Prisma.InputJsonValue,
-        },
-      });
+        // Read AFTER the lock: `messages` is UNIQUE on (conversation_id, seq), so
+        // reading before it is how two writers pick the same number.
+        const last = await tx.message.findFirst({
+          where: { conversationId: row.conversationId },
+          orderBy: { seq: 'desc' },
+          select: { seq: true },
+        });
+        await tx.message.create({
+          data: {
+            conversationId: row.conversationId,
+            seq: (last?.seq ?? 0) + 1,
+            role: 'agent',
+            content: decision.operator_summary,
+            // The operator summary, like every other agent row: this repairs the
+            // audit trail and the queue, it does not write to a customer.
+            visibility: 'internal',
+            meta: {
+              turn_id: row.id,
+              at: new Date().toISOString(),
+              reconciled: true,
+            } as Prisma.InputJsonValue,
+          },
+        });
 
-      // The state change that actually makes the ticket findable: it is not
-      // "open" any more, it is waiting on a human.
-      await tx.conversation.update({
-        where: { id: row.conversationId },
-        data: { status: decision.requires_human ? 'awaiting_human' : 'open' },
-      });
+        // The state change that actually makes the ticket findable: it is not
+        // "open" any more, it is waiting on a human.
+        await tx.conversation.update({
+          where: { id: row.conversationId },
+          data: { status: decision.requires_human ? 'awaiting_human' : 'open' },
+        });
 
-      return 'failedSafe';
-    });
+        return 'failedSafe';
+      },
+    );
 
     if (!wrote) return null;
 
@@ -719,7 +714,11 @@ export class ReconcilerService implements OnApplicationBootstrap, OnApplicationS
     const { count } = await this.prisma.idempotencyKey.deleteMany({
       where: { key: { in: rows.map((r) => r.key) }, status: { in: ['completed', 'failed'] } },
     });
-    this.logger.log({ event: 'reconcile.idempotency_keys_purged', count, before: before.toISOString() });
+    this.logger.log({
+      event: 'reconcile.idempotency_keys_purged',
+      count,
+      before: before.toISOString(),
+    });
     return count;
   }
 }

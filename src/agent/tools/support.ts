@@ -26,7 +26,9 @@ export function stableId(prefix: string, key: string, length = 12): string {
  */
 export function requireDedupKey(dedupKey: string | undefined, toolName: string): string {
   if (!dedupKey) {
-    throw new Error(`${toolName} was called with no dedup key; the caller must pass the server-derived key`);
+    throw new Error(
+      `${toolName} was called with no dedup key; the caller must pass the server-derived key`,
+    );
   }
   return dedupKey;
 }

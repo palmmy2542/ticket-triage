@@ -62,13 +62,17 @@ const incidentArgs = (region: string) => ({
   severity: 'sev2' as const,
   region,
   title: 'Regional API failures reported by enterprise account',
-  summary: 'Multiple users on a 45-seat enterprise account see HTTP 500s; regional probes are degraded.',
+  summary:
+    'Multiple users on a 45-seat enterprise account see HTTP 500s; regional probes are degraded.',
 });
 
 describe('runTurn - money never moves without a human', () => {
   it('turns refund calls into pending approvals and never executes them', async () => {
     const h = harness([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       {
         kind: 'tools',
         calls: [
@@ -77,7 +81,10 @@ describe('runTurn - money never moves without a human', () => {
         ],
       },
       // The model tries to auto-respond while refunds are pending.
-      { kind: 'decision', decision: decisionFixture({ urgency: 'high', next_action: 'auto_respond' }) },
+      {
+        kind: 'decision',
+        decision: decisionFixture({ urgency: 'high', next_action: 'auto_respond' }),
+      },
     ]);
 
     const result = await runTurn({
@@ -219,7 +226,7 @@ describe('runTurn - money never moves without a human', () => {
     expect(result.decision.next_action).toBe('escalate_to_human');
   });
 
-  it('does not re-trip on the agent\'s own summary of an attack', async () => {
+  it("does not re-trip on the agent's own summary of an attack", async () => {
     // The counterweight that keeps the scan from feeding on itself: an
     // `agent` row is our own prose (operator_summary), and it quotes the
     // attacker's words when it explains what happened. Scanning it would make
@@ -326,7 +333,10 @@ describe('runTurn - autonomous paging is deduplicated', () => {
     const first = await runTurn({
       ...base,
       llm: new FakeLlm([
-        { kind: 'tools', calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }] },
+        {
+          kind: 'tools',
+          calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }],
+        },
         { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
       ]),
     });
@@ -334,7 +344,10 @@ describe('runTurn - autonomous paging is deduplicated', () => {
     const second = await runTurn({
       ...base,
       llm: new FakeLlm([
-        { kind: 'tools', calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }] },
+        {
+          kind: 'tools',
+          calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }],
+        },
         { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
       ]),
     });
@@ -426,7 +439,9 @@ describe('runTurn - the service pages on its own evidence', () => {
 
     expect(h.store.byTool('open_incident')).toHaveLength(1);
     expect(result.toolCalls.filter((c) => c.toolName === 'open_incident')).toHaveLength(1);
-    expect(result.toolCalls.find((c) => c.toolName === 'open_incident')!.policyOutcome).toBe('allowed');
+    expect(result.toolCalls.find((c) => c.toolName === 'open_incident')!.policyOutcome).toBe(
+      'allowed',
+    );
   });
 
   it('pages the degraded region even when the model paged a different one', async () => {
@@ -515,7 +530,10 @@ describe('runTurn - the service pages on its own evidence', () => {
         kind: 'tools',
         calls: [statusCall, { name: 'open_incident', args: incidentArgs('asia-southeast-1') }],
       },
-      { kind: 'decision', decision: decisionFixture({ urgency: 'high', next_action: 'escalate_to_human' }) },
+      {
+        kind: 'decision',
+        decision: decisionFixture({ urgency: 'high', next_action: 'escalate_to_human' }),
+      },
     ]);
 
     const result = await runTurn({
@@ -548,12 +566,21 @@ describe('runTurn - the service pages on its own evidence', () => {
     // Sample ticket 7. The rule must not fire here or on-call learns to ignore it.
     const h = harness([
       { kind: 'tools', calls: [statusCall] },
-      { kind: 'decision', decision: decisionFixture({ urgency: 'high', next_action: 'route_to_specialist' }) },
+      {
+        kind: 'decision',
+        decision: decisionFixture({ urgency: 'high', next_action: 'route_to_specialist' }),
+      },
     ]);
 
     await runTurn({
       conversationId: 'conv_page_3',
-      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      customer: {
+        id: 'cust_3003',
+        plan: 'pro',
+        tenure_months: 5,
+        region: 'us-west-2',
+        prior_tickets: 0,
+      },
       messages: customerMessages(['I cannot log in, my colleague is fine']),
       now: NOW,
       ...h,
@@ -621,7 +648,9 @@ describe('runTurn - fail-safe behaviour', () => {
   });
 
   it('escalates when the model returns something that is not JSON', async () => {
-    const h = harness([{ kind: 'raw', content: 'Sure! Here is my analysis: the ticket looks urgent.' }]);
+    const h = harness([
+      { kind: 'raw', content: 'Sure! Here is my analysis: the ticket looks urgent.' },
+    ]);
     const result = await runTurn({
       conversationId: 'conv_8',
       customer: FREE_CUSTOMER,
@@ -648,9 +677,18 @@ describe('runTurn - fail-safe behaviour', () => {
 
   it('stops and escalates when the model loops past the iteration cap', async () => {
     const h = harness([
-      { kind: 'tools', calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }] },
-      { kind: 'tools', calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }] },
-      { kind: 'tools', calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }],
+      },
+      {
+        kind: 'tools',
+        calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }],
+      },
+      {
+        kind: 'tools',
+        calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }],
+      },
     ]);
 
     const result = await runTurn({
@@ -691,7 +729,10 @@ describe('runTurn - fail-safe behaviour', () => {
       policyOutcome: 'denied',
       status: 'denied',
     });
-    expect(result.decision.tools_used[0]).toMatchObject({ name: 'wire_transfer', status: 'denied' });
+    expect(result.decision.tools_used[0]).toMatchObject({
+      name: 'wire_transfer',
+      status: 'denied',
+    });
     expect(h.store.all()).toHaveLength(0);
   });
 
@@ -728,13 +769,24 @@ describe('runTurn - fail-safe behaviour', () => {
 describe('runTurn - auto-respond is still possible', () => {
   it('lets a routine question through without a human', async () => {
     const h = harness([
-      { kind: 'tools', calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode toggle', limit: null } }] },
+      {
+        kind: 'tools',
+        calls: [
+          { name: 'search_knowledge_base', args: { query: 'dark mode toggle', limit: null } },
+        ],
+      },
       { kind: 'decision', decision: decisionFixture() },
     ]);
 
     const result = await runTurn({
       conversationId: 'conv_13',
-      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      customer: {
+        id: 'cust_3003',
+        plan: 'pro',
+        tenure_months: 5,
+        region: 'us-west-2',
+        prior_tickets: 0,
+      },
       messages: customerMessages(['do you support dark mode?']),
       now: NOW,
       ...h,
@@ -747,7 +799,9 @@ describe('runTurn - auto-respond is still possible', () => {
   });
 
   it('refuses to auto-respond with an empty draft', async () => {
-    const h = harness([{ kind: 'decision', decision: decisionFixture({ customer_reply_draft: '  ' }) }]);
+    const h = harness([
+      { kind: 'decision', decision: decisionFixture({ customer_reply_draft: '  ' }) },
+    ]);
     const result = await runTurn({
       conversationId: 'conv_14',
       customer: FREE_CUSTOMER,
@@ -756,7 +810,9 @@ describe('runTurn - auto-respond is still possible', () => {
       ...h,
     });
     expect(result.decision.next_action).toBe('escalate_to_human');
-    expect(result.decision.guard_notes).toContain('auto_respond_without_draft: no reply text was produced');
+    expect(result.decision.guard_notes).toContain(
+      'auto_respond_without_draft: no reply text was produced',
+    );
   });
 
   it('will not auto-respond to a question with nothing looked up behind it', async () => {
@@ -778,8 +834,16 @@ describe('runTurn - auto-respond is still possible', () => {
 
     const result = await runTurn({
       conversationId: 'conv_ground_1',
-      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
-      messages: customerMessages(['We are getting HTTP 429 from your API during our nightly sync.']),
+      customer: {
+        id: 'cust_3003',
+        plan: 'pro',
+        tenure_months: 5,
+        region: 'us-west-2',
+        prior_tickets: 0,
+      },
+      messages: customerMessages([
+        'We are getting HTTP 429 from your API during our nightly sync.',
+      ]),
       now: NOW,
       ...h,
     });
@@ -793,13 +857,27 @@ describe('runTurn - auto-respond is still possible', () => {
 
   it('allows an auto-response once the knowledge base was actually consulted', async () => {
     const h = harness([
-      { kind: 'tools', calls: [{ name: 'search_knowledge_base', args: { query: 'api rate limit 429', limit: null } }] },
-      { kind: 'decision', decision: decisionFixture({ issue_type: 'question', product_area: 'api' }) },
+      {
+        kind: 'tools',
+        calls: [
+          { name: 'search_knowledge_base', args: { query: 'api rate limit 429', limit: null } },
+        ],
+      },
+      {
+        kind: 'decision',
+        decision: decisionFixture({ issue_type: 'question', product_area: 'api' }),
+      },
     ]);
 
     const result = await runTurn({
       conversationId: 'conv_ground_2',
-      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      customer: {
+        id: 'cust_3003',
+        plan: 'pro',
+        tenure_months: 5,
+        region: 'us-west-2',
+        prior_tickets: 0,
+      },
       messages: customerMessages(['Is there a rate limit on the API?']),
       now: NOW,
       ...h,
@@ -815,7 +893,12 @@ describe('runTurn - auto-respond is still possible', () => {
     const h = harness([
       {
         kind: 'tools',
-        calls: [{ name: 'search_knowledge_base', args: { query: 'cannot log in spinner forever', limit: null } }],
+        calls: [
+          {
+            name: 'search_knowledge_base',
+            args: { query: 'cannot log in spinner forever', limit: null },
+          },
+        ],
       },
       {
         kind: 'decision',
@@ -830,7 +913,13 @@ describe('runTurn - auto-respond is still possible', () => {
 
     const result = await runTurn({
       conversationId: 'conv_ground_4',
-      customer: { id: 'cust_3003', plan: 'pro', tenure_months: 5, region: 'us-west-2', prior_tickets: 0 },
+      customer: {
+        id: 'cust_3003',
+        plan: 'pro',
+        tenure_months: 5,
+        region: 'us-west-2',
+        prior_tickets: 0,
+      },
       messages: customerMessages(['I cannot log in at all, it just spins forever.']),
       now: NOW,
       ...h,
@@ -852,7 +941,10 @@ describe('runTurn - auto-respond is still possible', () => {
     // default: without a real tool result this would route, and a test that
     // only checked `auto_respond` would have been passing for the wrong reason.
     const h = harness([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       {
         kind: 'decision',
         decision: decisionFixture({
@@ -939,7 +1031,10 @@ describe('runTurn - auto-respond is still possible', () => {
 
   it('never auto-responds to a critical ticket', async () => {
     const h = harness([
-      { kind: 'decision', decision: decisionFixture({ urgency: 'critical', customer_reply_draft: 'we are on it' }) },
+      {
+        kind: 'decision',
+        decision: decisionFixture({ urgency: 'critical', customer_reply_draft: 'we are on it' }),
+      },
     ]);
     const result = await runTurn({
       conversationId: 'conv_15',
@@ -949,7 +1044,9 @@ describe('runTurn - auto-respond is still possible', () => {
       ...h,
     });
     expect(result.decision.next_action).toBe('escalate_to_human');
-    expect(result.decision.guard_notes).toContain('critical_urgency: never auto-respond to a critical ticket');
+    expect(result.decision.guard_notes).toContain(
+      'critical_urgency: never auto-respond to a critical ticket',
+    );
   });
 
   it('fills in a missing specialist team rather than routing nowhere', async () => {
@@ -974,7 +1071,10 @@ describe('runTurn - auto-respond is still possible', () => {
 describe('runTurn - audit trail', () => {
   it('logs every step needed to reconstruct the decision', async () => {
     const h = harness([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f22b') }] },
       { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
     ]);
@@ -1302,7 +1402,7 @@ describe('applyGuards', () => {
     );
   });
 
-  it('does not accept a side effect or the service\'s own page as evidence', () => {
+  it("does not accept a side effect or the service's own page as evidence", () => {
     // pageIfRegionIsDown pushes its system_rule record into `records` before the
     // guards run, so treating any succeeded call as evidence let the service
     // manufacture the grounding for the model's unread reply. What excludes it
@@ -1332,8 +1432,11 @@ describe('applyGuards', () => {
     // still licenses the reply, so the two assertions above are about the
     // EXCLUSION and not about `outage` never auto-responding.
     const readOnly = guards({ issue_type: 'outage', next_action: 'auto_respond' }, [
-      toolRecord({ toolName: 'check_service_status', args: { region: null },
-        result: { ok: true, region: 'us-east-1' } }),
+      toolRecord({
+        toolName: 'check_service_status',
+        args: { region: null },
+        result: { ok: true, region: 'us-east-1' },
+      }),
     ]).decision;
     expect(readOnly.next_action).toBe('auto_respond');
   });
@@ -1341,10 +1444,19 @@ describe('applyGuards', () => {
   it('requires the account lookup behind a claim about money, not just any lookup', () => {
     // A platform status probe says nothing about this customer's charges.
     const statusOnly = guards(
-      { issue_type: 'billing_dispute', product_area: 'billing', next_action: 'auto_respond',
-        customer_reply_draft: 'We have refunded the two duplicate charges of $29.99.' },
-      [toolRecord({ toolName: 'check_service_status', args: { region: null },
-        result: { ok: true, region: 'us-east-1' } })],
+      {
+        issue_type: 'billing_dispute',
+        product_area: 'billing',
+        next_action: 'auto_respond',
+        customer_reply_draft: 'We have refunded the two duplicate charges of $29.99.',
+      },
+      [
+        toolRecord({
+          toolName: 'check_service_status',
+          args: { region: null },
+          result: { ok: true, region: 'us-east-1' },
+        }),
+      ],
     ).decision;
     expect(statusOnly.next_action).toBe('route_to_specialist');
     expect(statusOnly.guard_notes).toContain(

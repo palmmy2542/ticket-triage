@@ -71,7 +71,10 @@ describe('detectRegionalOutage', () => {
   });
 
   it('fires when the customer own region reports degraded', () => {
-    const outage = detectRegionalOutage([statusRecord('asia-southeast-1', 'degraded')], 'asia-southeast-1');
+    const outage = detectRegionalOutage(
+      [statusRecord('asia-southeast-1', 'degraded')],
+      'asia-southeast-1',
+    );
     expect(outage).toMatchObject({
       region: 'asia-southeast-1',
       state: 'degraded',
@@ -87,11 +90,15 @@ describe('detectRegionalOutage', () => {
   it('does not fire when the region is operational', () => {
     // Sample ticket 7: one blocked user, healthy region. Paging here would be
     // the false positive that teaches on-call to ignore the pager.
-    expect(detectRegionalOutage([statusRecord('us-west-2', 'operational')], 'us-west-2')).toBeNull();
+    expect(
+      detectRegionalOutage([statusRecord('us-west-2', 'operational')], 'us-west-2'),
+    ).toBeNull();
   });
 
   it('ignores probe data for a region the customer is not in', () => {
-    expect(detectRegionalOutage([statusRecord('asia-southeast-1', 'degraded')], 'us-east-1')).toBeNull();
+    expect(
+      detectRegionalOutage([statusRecord('asia-southeast-1', 'degraded')], 'us-east-1'),
+    ).toBeNull();
   });
 
   it('ignores a failed status check', () => {

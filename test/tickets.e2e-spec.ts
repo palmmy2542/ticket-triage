@@ -34,7 +34,6 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
     await truncateAll(ctx.prisma);
   });
 
-
   const http = () => ctx.app.getHttpAdapter().getInstance();
   const post = (url: string, payload?: object, headers?: Record<string, string>) =>
     http().inject({ method: 'POST', url, payload, headers });
@@ -132,7 +131,10 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
           calls: [{ name: 'search_knowledge_base', args: { query: 'dark mode', limit: null } }],
         },
         { kind: 'decision', decision: decisionFixture() },
-        { kind: 'decision', decision: decisionFixture({ operator_summary: 'Answered the operator.' }) },
+        {
+          kind: 'decision',
+          decision: decisionFixture({ operator_summary: 'Answered the operator.' }),
+        },
       ]);
 
       const ingest = json(await post('/tickets', ticket3()));
@@ -145,7 +147,15 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
       const conv = json(await get(`/conversations/${ingest.conversation_id}`));
       expect(conv.turns).toHaveLength(2);
       const roles = conv.messages.map((m: { role: string }) => m.role);
-      expect(roles).toEqual(['customer', 'customer', 'customer', 'customer', 'agent', 'operator', 'agent']);
+      expect(roles).toEqual([
+        'customer',
+        'customer',
+        'customer',
+        'customer',
+        'agent',
+        'operator',
+        'agent',
+      ]);
 
       // The second turn's request must have carried the previous decision.
       const lastRequest = ctx.llm.requests[ctx.llm.requests.length - 1]!;
@@ -194,7 +204,10 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
     it('C1-C3: open_incident pages once, autonomously, and the audit trail records the status disagreement', async () => {
       ctx.llm.script([
         { kind: 'tools', calls: [{ name: 'check_service_status', args: { region: null } }] },
-        { kind: 'tools', calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }] },
+        {
+          kind: 'tools',
+          calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }],
+        },
         {
           kind: 'decision',
           decision: decisionFixture({
@@ -207,7 +220,10 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
           }),
         },
         // Turn 2: model tries to open the SAME incident again.
-        { kind: 'tools', calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }] },
+        {
+          kind: 'tools',
+          calls: [{ name: 'open_incident', args: incidentArgs('asia-southeast-1') }],
+        },
         {
           kind: 'decision',
           decision: decisionFixture({

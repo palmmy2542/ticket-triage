@@ -144,7 +144,9 @@ function assertStrict(node: unknown, path: string): void {
 
   if (obj['type'] === 'object') {
     if (obj['additionalProperties'] !== false) {
-      throw new Error(`strictJsonSchema: ${path} must set additionalProperties:false (use z.strictObject)`);
+      throw new Error(
+        `strictJsonSchema: ${path} must set additionalProperties:false (use z.strictObject)`,
+      );
     }
     const properties = (obj['properties'] ?? {}) as Record<string, unknown>;
     const required = (obj['required'] ?? []) as string[];

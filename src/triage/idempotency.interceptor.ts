@@ -360,7 +360,9 @@ function failureSnapshot(error: unknown): {
 
 function hashBody(body: unknown): string {
   // Stable across key order so a re-serialised retry still matches.
-  return createHash('sha256').update(JSON.stringify(sortKeys(body) ?? null)).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(sortKeys(body) ?? null))
+    .digest('hex');
 }
 
 function sortKeys(value: unknown): unknown {

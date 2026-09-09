@@ -106,7 +106,10 @@ export function ticket2(): IngestTicketBody {
     },
     messages: [
       { at: hoursAgo(2), text: 'ระบบขึ้น error 500 ทั้งบริษัทตั้งแต่เมื่อเช้านี้ครับ' },
-      { at: hoursAgo(1.5), text: 'พนักงานหลายคนในทีมเจอปัญหาเดียวกัน หน้าจอว่างเปล่าเข้าใช้งานไม่ได้เลย' },
+      {
+        at: hoursAgo(1.5),
+        text: 'พนักงานหลายคนในทีมเจอปัญหาเดียวกัน หน้าจอว่างเปล่าเข้าใช้งานไม่ได้เลย',
+      },
       {
         at: hoursAgo(1),
         text: 'เช็คหน้า status page แล้วบอกว่าระบบปกติดี แต่จริง ๆ ใช้งานไม่ได้เลยครับ',
@@ -131,7 +134,10 @@ export function ticket3(): IngestTicketBody {
     },
     messages: [
       { at: hoursAgo(4), text: "Hi, I can't find a way to turn on dark mode in my workspace." },
-      { at: hoursAgo(3), text: 'Settings > Appearance only shows Light and System Default for me.' },
+      {
+        at: hoursAgo(3),
+        text: 'Settings > Appearance only shows Light and System Default for me.',
+      },
       {
         at: hoursAgo(2),
         text: 'I already tried switching my Mac to dark mode but the app stays light.',

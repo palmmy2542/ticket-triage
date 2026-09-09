@@ -1,0 +1,26 @@
+# Prettier owns the code. It does not own the prose or the data.
+
+dist/
+coverage/
+node_modules/
+pnpm-lock.yaml
+
+# Whole checkouts of this repo live here (git worktrees).
+.claude/
+
+# Hand-written SQL, and the one place a comment explains a Postgres subtlety
+# in a shape Prettier has no opinion about anyway.
+prisma/migrations/
+
+# The system prompt is INPUT, not source: re-wrapping it changes the bytes the
+# model receives, and PROMPT_VERSION would not move to say so.
+src/agent/prompt/*.md
+
+# Documentation is wrapped by hand, deliberately - the tables are aligned to be
+# read in a terminal diff, and re-padding them churns a hundred lines to no end.
+*.md
+
+# Generated baselines and curated label data. Reformatting either buries the
+# next real diff.
+eval/results/
+eval/tickets.labelled.json

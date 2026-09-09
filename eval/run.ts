@@ -193,7 +193,11 @@ function checkCase(
     );
   }
   if (expect.issue_type) {
-    add('issue_type', expect.issue_type.includes(decision.issue_type), `got ${decision.issue_type}`);
+    add(
+      'issue_type',
+      expect.issue_type.includes(decision.issue_type),
+      `got ${decision.issue_type}`,
+    );
   }
   if (expect.requires_human !== undefined) {
     add('requires_human', decision.requires_human === expect.requires_human);
@@ -386,7 +390,9 @@ async function main(): Promise<void> {
 
   const repeat = Number(arg('repeat', '1'));
   const useFake = flag('fake');
-  const model = useFake ? 'canned-fake' : (arg('model') ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini');
+  const model = useFake
+    ? 'canned-fake'
+    : (arg('model') ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini');
 
   if (!useFake && !process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is not set. Run with --fake to smoke-test the harness itself.');
@@ -440,7 +446,8 @@ async function main(): Promise<void> {
       const run = await runCase(testCase, llm, log, attempt, judge);
       runs.push(run);
       const failures = run.checks.filter((c) => !c.pass);
-      const mark = run.fatal_failures.length > 0 ? 'UNSAFE' : failures.length === 0 ? 'pass' : 'FAIL';
+      const mark =
+        run.fatal_failures.length > 0 ? 'UNSAFE' : failures.length === 0 ? 'pass' : 'FAIL';
       console.log(
         `  [${mark}] ${run.case_id}${repeat > 1 ? ` #${attempt}` : ''} ` +
           `${run.passed}/${run.total} | ${run.urgency}/${run.next_action}/${run.language} ` +
@@ -474,9 +481,18 @@ async function main(): Promise<void> {
       : { passed: relevant.filter((c) => c.pass).length, total: relevant.length };
   };
 
-  const metrics = ['urgency', 'next_action', 'language', 'product_area', 'requires_human', 'structurally_valid']
+  const metrics = [
+    'urgency',
+    'next_action',
+    'language',
+    'product_area',
+    'requires_human',
+    'structurally_valid',
+  ]
     .map((name) => ({ name, score: byMetric(name) }))
-    .filter((m): m is { name: string; score: { passed: number; total: number } } => m.score !== null);
+    .filter(
+      (m): m is { name: string; score: { passed: number; total: number } } => m.score !== null,
+    );
 
   const allChecks = runs.flatMap((r) => r.checks);
   const fatal = allChecks.filter((c) => c.fatal && !c.pass);
@@ -493,12 +509,18 @@ async function main(): Promise<void> {
   console.log('\n  --- aggregate ---');
   for (const metric of metrics) {
     const pct = ((metric.score.passed / metric.score.total) * 100).toFixed(0);
-    console.log(`  ${metric.name.padEnd(20)} ${metric.score.passed}/${metric.score.total}  (${pct}%)`);
+    console.log(
+      `  ${metric.name.padEnd(20)} ${metric.score.passed}/${metric.score.total}  (${pct}%)`,
+    );
   }
   console.log(`  ${'clean runs'.padEnd(20)} ${perfectCases}/${runs.length}`);
-  console.log(`  ${'safety violations'.padEnd(20)} ${fatal.length}${fatal.length ? '  <-- FAILING' : ''}`);
+  console.log(
+    `  ${'safety violations'.padEnd(20)} ${fatal.length}${fatal.length ? '  <-- FAILING' : ''}`,
+  );
   if (repeat > 1) {
-    console.log(`  ${'unstable cases'.padEnd(20)} ${flips.length}/${new Set(runs.map((r) => r.case_id)).size}${flips.length ? ` (${flips.join(', ')})` : ''}`);
+    console.log(
+      `  ${'unstable cases'.padEnd(20)} ${flips.length}/${new Set(runs.map((r) => r.case_id)).size}${flips.length ? ` (${flips.join(', ')})` : ''}`,
+    );
   }
   const totalTokens = runs.reduce((sum, r) => sum + r.input_tokens + r.output_tokens, 0);
   const medianLatency = [...runs.map((r) => r.latency_ms)].sort((a, b) => a - b)[
@@ -523,7 +545,9 @@ async function main(): Promise<void> {
   }
 
   console.log(`  ${'median latency'.padEnd(20)} ${medianLatency}ms`);
-  console.log(`  ${'tokens (total)'.padEnd(20)} ${totalTokens}  (~${Math.round(totalTokens / runs.length)}/ticket)`);
+  console.log(
+    `  ${'tokens (total)'.padEnd(20)} ${totalTokens}  (~${Math.round(totalTokens / runs.length)}/ticket)`,
+  );
 
   const report = {
     generated_at: new Date().toISOString(),
@@ -535,7 +559,13 @@ async function main(): Promise<void> {
     safety_violations: fatal.map((c) => c.name),
     unstable_cases: flips,
     groundedness: judge
-      ? { judged: judged.length, grounded, contradictions, judge_errors: judgeErrors, judge_model: judgeModel }
+      ? {
+          judged: judged.length,
+          grounded,
+          contradictions,
+          judge_errors: judgeErrors,
+          judge_model: judgeModel,
+        }
       : null,
     median_latency_ms: medianLatency,
     total_tokens: totalTokens,

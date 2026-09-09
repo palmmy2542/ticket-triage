@@ -38,16 +38,49 @@ interface Pattern {
  * deliberately absent, because those are what real customers write.
  */
 const PATTERNS: Pattern[] = [
-  { name: 'ignore_previous_instructions', regex: /\b(ignore|disregard|forget)\b[^.!?\n]{0,40}\b(previous|prior|above|earlier|all)\b[^.!?\n]{0,20}\b(instruction|prompt|rule|direction|guideline)/i },
-  { name: 'system_override', regex: /\b(system|admin(istrator)?|security)\s*(override|overide|bypass)\b/i },
-  { name: 'fake_system_directive', regex: /(^|\n)\s*#{0,4}\s*(system|assistant|developer)\s*(prompt|message|instruction|directive)?\s*:/i },
-  { name: 'role_reassignment', regex: /\byou are (now|hereby)\b[^.!?\n]{0,40}\b(admin(istrator)?|developer|root|superuser|unrestricted|god)\b/i },
-  { name: 'mode_switch', regex: /\b(admin(istrator)?|developer|debug|god|maintenance|unrestricted)\s+mode\b/i },
-  { name: 'restrictions_lifted', regex: /\b(autonomy|safety|approval|restriction|guardrail|limitation)s?\b[^.!?\n]{0,40}\b(lifted|removed|disabled|waived|suspended|off)\b/i },
-  { name: 'self_approval_demand', regex: /\b(approve|authorise|authorize|confirm)\b[^.!?\n]{0,40}\b(yourself|on your own|automatically|without (a )?(human|approval|review))\b/i },
-  { name: 'suppress_human', regex: /\b(do not|don'?t|never)\b[^.!?\n]{0,30}\b(escalate|involve|notify|inform|tell|contact)\b[^.!?\n]{0,20}\b(human|person|agent|operator|support team|manager)\b/i },
+  {
+    name: 'ignore_previous_instructions',
+    regex:
+      /\b(ignore|disregard|forget)\b[^.!?\n]{0,40}\b(previous|prior|above|earlier|all)\b[^.!?\n]{0,20}\b(instruction|prompt|rule|direction|guideline)/i,
+  },
+  {
+    name: 'system_override',
+    regex: /\b(system|admin(istrator)?|security)\s*(override|overide|bypass)\b/i,
+  },
+  {
+    name: 'fake_system_directive',
+    regex:
+      /(^|\n)\s*#{0,4}\s*(system|assistant|developer)\s*(prompt|message|instruction|directive)?\s*:/i,
+  },
+  {
+    name: 'role_reassignment',
+    regex:
+      /\byou are (now|hereby)\b[^.!?\n]{0,40}\b(admin(istrator)?|developer|root|superuser|unrestricted|god)\b/i,
+  },
+  {
+    name: 'mode_switch',
+    regex: /\b(admin(istrator)?|developer|debug|god|maintenance|unrestricted)\s+mode\b/i,
+  },
+  {
+    name: 'restrictions_lifted',
+    regex:
+      /\b(autonomy|safety|approval|restriction|guardrail|limitation)s?\b[^.!?\n]{0,40}\b(lifted|removed|disabled|waived|suspended|off)\b/i,
+  },
+  {
+    name: 'self_approval_demand',
+    regex:
+      /\b(approve|authorise|authorize|confirm)\b[^.!?\n]{0,40}\b(yourself|on your own|automatically|without (a )?(human|approval|review))\b/i,
+  },
+  {
+    name: 'suppress_human',
+    regex:
+      /\b(do not|don'?t|never)\b[^.!?\n]{0,30}\b(escalate|involve|notify|inform|tell|contact)\b[^.!?\n]{0,20}\b(human|person|agent|operator|support team|manager)\b/i,
+  },
   { name: 'new_instructions', regex: /\bnew\s+(instruction|rule|direction|prompt)s?\s*:/i },
-  { name: 'tool_command_injection', regex: /\b(call|invoke|execute|run)\b[^.!?\n]{0,25}\b(issue_refund|open_incident|tool)\b/i },
+  {
+    name: 'tool_command_injection',
+    regex: /\b(call|invoke|execute|run)\b[^.!?\n]{0,25}\b(issue_refund|open_incident|tool)\b/i,
+  },
 ];
 
 /** Scan customer-supplied text. Returns null when nothing matched. */
@@ -62,7 +95,12 @@ export function detectInjectionAttempt(text: string): InjectionFinding | null {
     if (!match) continue;
     patterns.push(name);
     const start = Math.max(0, match.index - 20);
-    excerpts.push(text.slice(start, match.index + match[0].length + 20).replace(/\s+/g, ' ').trim());
+    excerpts.push(
+      text
+        .slice(start, match.index + match[0].length + 20)
+        .replace(/\s+/g, ' ')
+        .trim(),
+    );
   }
 
   return patterns.length > 0 ? { patterns, excerpts } : null;

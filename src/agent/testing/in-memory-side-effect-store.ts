@@ -22,12 +22,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createToolRegistry } from '../tools/registry';
 import { dedupScopeKeyFor } from '../types';
-import type {
-  SideEffectRecord,
-  SideEffectStatus,
-  SideEffectStore,
-  ToolRegistry,
-} from '../types';
+import type { SideEffectRecord, SideEffectStatus, SideEffectStore, ToolRegistry } from '../types';
 
 interface Row extends SideEffectRecord {
   conversationId: string;

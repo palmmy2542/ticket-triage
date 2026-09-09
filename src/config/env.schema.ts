@@ -8,9 +8,7 @@ export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().default(3000),
-    LOG_LEVEL: z
-      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
-      .default('info'),
+    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     DATABASE_URL: z.string().url(),
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().default('gpt-4.1-mini'),
@@ -48,8 +46,7 @@ export const envSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['OPENAI_API_KEY'],
-        message:
-          'OPENAI_API_KEY is required when FAKE_LLM is false and NODE_ENV is not "test"',
+        message: 'OPENAI_API_KEY is required when FAKE_LLM is false and NODE_ENV is not "test"',
       });
     }
   });

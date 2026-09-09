@@ -125,7 +125,9 @@ describe('relevance floor - queries the knowledge base does not answer', () => {
     // Thai limitation below), and "Pro" is in the export article's title, tags
     // and body. An export article must not be the grounding behind a reply to a
     // customer asking for their money back.
-    expect(ids('ถูกตัดเงินซ้ำ 3 ครั้ง ครั้งละ $29.99 แต่ยังใช้ Pro ไม่ได้เลยครับ ขอ refund ด้วย')).toEqual([]);
+    expect(
+      ids('ถูกตัดเงินซ้ำ 3 ครั้ง ครั้งละ $29.99 แต่ยังใช้ Pro ไม่ได้เลยครับ ขอ refund ด้วย'),
+    ).toEqual([]);
   });
 });
 

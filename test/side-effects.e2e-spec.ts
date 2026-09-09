@@ -43,7 +43,6 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
     await truncateAll(ctx.prisma);
   });
 
-
   const http = () => ctx.app.getHttpAdapter().getInstance();
   const post = (url: string, payload?: object, headers?: Record<string, string>) =>
     http().inject({ method: 'POST', url, payload, headers });
@@ -52,7 +51,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
   it('B1: two refund requests become pending approvals; the guard overrides auto_respond', async () => {
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       {
         kind: 'tools',
         calls: [
@@ -77,9 +79,9 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
     expect(body.decision.next_action).toBe('escalate_to_human');
     expect(body.decision.requires_human).toBe(true);
     expect(body.decision.pending_side_effect_ids).toHaveLength(2);
-    expect(body.decision.guard_notes.some((n: string) => n.includes('pending_human_approval'))).toBe(
-      true,
-    );
+    expect(
+      body.decision.guard_notes.some((n: string) => n.includes('pending_human_approval')),
+    ).toBe(true);
 
     const conv = json(await get(`/conversations/${body.conversation_id}`));
     expect(conv.side_effects).toHaveLength(2);
@@ -97,7 +99,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
   it('B2-B3: approving executes exactly once; a retried approval replays the same result', async () => {
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f22b') }] },
       { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
     ]);
@@ -129,7 +134,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
   it('B4: two concurrent approvals of the same pending side effect execute exactly once', async () => {
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f23c') }] },
       { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
     ]);
@@ -168,7 +176,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
   it('B5: reject is terminal and idempotent; approving a rejected side effect is a conflict', async () => {
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f21a') }] },
       { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
     ]);
@@ -204,7 +215,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
   it('B6: asking for the same refund again after execution does not create a second row', async () => {
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       {
         kind: 'tools',
         calls: [
@@ -244,7 +258,8 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
     expect(conv.turns).toHaveLength(2);
     const secondTurnId = conv.turns[1].id;
     const repeatedCall = conv.tool_calls.find(
-      (c: { tool: string; turn_id: string }) => c.tool === 'issue_refund' && c.turn_id === secondTurnId,
+      (c: { tool: string; turn_id: string }) =>
+        c.tool === 'issue_refund' && c.turn_id === secondTurnId,
     );
     expect(repeatedCall).toBeDefined();
     expect(repeatedCall.result.note).toMatch(/already executed/i);
@@ -252,7 +267,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
   it('B7: an unknown side-effect id and one from a different conversation both 404', async () => {
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f22b') }] },
       { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
     ]);
@@ -261,13 +279,18 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
     // A second, unrelated conversation.
     ctx.llm.script([
-      { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+      {
+        kind: 'tools',
+        calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+      },
       { kind: 'decision', decision: decisionFixture() },
     ]);
     const convB = json(await post('/tickets', ticket1()));
 
     const unknownId = '11111111-1111-1111-1111-111111111111';
-    const unknown = await post(`/conversations/${convA.conversation_id}/side-effects/${unknownId}/approve`);
+    const unknown = await post(
+      `/conversations/${convA.conversation_id}/side-effects/${unknownId}/approve`,
+    );
     expect(unknown.statusCode).toBe(404);
     expect(json(unknown).error.code).toBe('side_effect_not_found');
 
@@ -407,7 +430,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
     const fileRefundThenAsk = async (question: string) => {
       ctx.llm.script([
         { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f22b') }] },
-        { kind: 'decision', decision: decisionFixture({ urgency: 'high', next_action: 'escalate_to_human' }) },
+        {
+          kind: 'decision',
+          decision: decisionFixture({ urgency: 'high', next_action: 'escalate_to_human' }),
+        },
       ]);
       const first = json(await post('/tickets', ticket1()));
       expect(first.decision.requires_human).toBe(true);
@@ -438,7 +464,9 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
     };
 
     it('B17: an operator question does not un-escalate a ticket with a refund pending', async () => {
-      const { conversationId, second } = await fileRefundThenAsk('Any update? Looks handled to me.');
+      const { conversationId, second } = await fileRefundThenAsk(
+        'Any update? Looks handled to me.',
+      );
 
       expect(second.decision.next_action).toBe('escalate_to_human');
       expect(second.decision.requires_human).toBe(true);
@@ -447,7 +475,9 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
       // The ticket stays in the human queue, and the refund is still theirs to
       // decide. `requires_human` is what writes the status, so one guard covers
       // both - there is no second rule about status to get out of step with.
-      const conv = await ctx.prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } });
+      const conv = await ctx.prisma.conversation.findUniqueOrThrow({
+        where: { id: conversationId },
+      });
       expect(conv.status).toBe('awaiting_human');
       const rows = await ctx.prisma.sideEffect.findMany({ where: { conversationId } });
       expect(rows.map((r) => r.status)).toEqual(['pending_approval']);
@@ -506,8 +536,17 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
     const ticketWithNoPendingWork = async () => {
       ctx.llm.script([
-        { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
-        { kind: 'decision', decision: decisionFixture({ next_action: 'route_to_specialist', specialist_team: 'billing' }) },
+        {
+          kind: 'tools',
+          calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+        },
+        {
+          kind: 'decision',
+          decision: decisionFixture({
+            next_action: 'route_to_specialist',
+            specialist_team: 'billing',
+          }),
+        },
       ]);
       return json(await post('/tickets', ticket1())).conversation_id as string;
     };
@@ -547,7 +586,9 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
 
       expect(answer.decision.pending_side_effect_ids).toHaveLength(1);
       const rows = await ctx.prisma.sideEffect.findMany({ where: { conversationId } });
-      expect(rows.map((r) => [r.toolName, r.status])).toEqual([['issue_refund', 'pending_approval']]);
+      expect(rows.map((r) => [r.toolName, r.status])).toEqual([
+        ['issue_refund', 'pending_approval'],
+      ]);
     });
 
     it('B21: a customer message still triages with actions, unauthorized by nobody', async () => {
@@ -580,7 +621,10 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
      */
     it('B22: customer rows are customer-visible; the operator exchange is internal', async () => {
       ctx.llm.script([
-        { kind: 'tools', calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }] },
+        {
+          kind: 'tools',
+          calls: [{ name: 'get_customer_account', args: { customer_id: 'cust_1001' } }],
+        },
         { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
       ]);
       const ingest = json(await post('/tickets', ticket1()));
@@ -602,19 +646,20 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
       });
 
       const conv = json(await get(`/conversations/${ingest.conversation_id}`));
-      expect(conv.messages.map((m: { role: string; visibility: string }) => [m.role, m.visibility]))
-        .toEqual([
-          ['customer', 'customer'],
-          ['customer', 'customer'],
-          ['customer', 'customer'],
-          ['customer', 'customer'],
-          // The agent row is the operator summary, not a reply anyone sent.
-          ['agent', 'internal'],
-          ['operator', 'internal'],
-          ['agent', 'internal'],
-          ['customer', 'customer'],
-          ['agent', 'internal'],
-        ]);
+      expect(
+        conv.messages.map((m: { role: string; visibility: string }) => [m.role, m.visibility]),
+      ).toEqual([
+        ['customer', 'customer'],
+        ['customer', 'customer'],
+        ['customer', 'customer'],
+        ['customer', 'customer'],
+        // The agent row is the operator summary, not a reply anyone sent.
+        ['agent', 'internal'],
+        ['operator', 'internal'],
+        ['agent', 'internal'],
+        ['customer', 'customer'],
+        ['agent', 'internal'],
+      ]);
     });
 
     it('B23: a client cannot post an internal row as customer-facing', async () => {
@@ -699,7 +744,9 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
       // and overwriting the winner would not have been.
       const row = await ctx.prisma.sideEffect.findUniqueOrThrow({ where: { id: sideEffectId } });
       expect(row.status).toBe('succeeded');
-      expect((row.result as { refund_id: string }).refund_id).toBe(stableId('re', 'cust_1001:ch_3f22b'));
+      expect((row.result as { refund_id: string }).refund_id).toBe(
+        stableId('re', 'cust_1001:ch_3f22b'),
+      );
 
       // And the operator's own answer says so, rather than reporting the
       // failure of an attempt whose claim was already gone.
@@ -835,101 +882,103 @@ describe('Side effects: approvals, rejection, dedup, failure recording (e2e)', (
       });
     });
 
-      it('B14: the rationale of the turn that asked is stamped onto the rows the turn filed', async () => {
-        const { conversationId, turnId } = await fileRefundOnTicket1();
+    it('B14: the rationale of the turn that asked is stamped onto the rows the turn filed', async () => {
+      const { conversationId, turnId } = await fileRefundOnTicket1();
 
-        // Stamped by `runTurnFor` itself, so one ingest is enough. It CANNOT be
-        // captured when the row is filed: the turn row is opened `running` with a
-        // null decision before the model runs, and the rationale only exists once
-        // the tool loop - which filed this row - has finished. So the turn stamps
-        // it immediately after its own transaction commits.
-        const conv = json(await get(`/conversations/${conversationId}`));
-        const turn = conv.turns.find((t: { id: string }) => t.id === turnId);
-        expect(turn.decision.rationale).toContain('ch_3f21a is the intended purchase');
+      // Stamped by `runTurnFor` itself, so one ingest is enough. It CANNOT be
+      // captured when the row is filed: the turn row is opened `running` with a
+      // null decision before the model runs, and the rationale only exists once
+      // the tool loop - which filed this row - has finished. So the turn stamps
+      // it immediately after its own transaction commits.
+      const conv = json(await get(`/conversations/${conversationId}`));
+      const turn = conv.turns.find((t: { id: string }) => t.id === turnId);
+      expect(turn.decision.rationale).toContain('ch_3f21a is the intended purchase');
 
-        expect(conv.side_effects[0].decision_context).toMatchObject({
-          // Merged, not replaced: the request-time customer snapshot survives the
-          // stamp, so the operator sees whose money it is AND why the agent asked.
-          customer_id: 'cust_1001',
-          plan: 'free',
-          rationale: turn.decision.rationale,
-        });
+      expect(conv.side_effects[0].decision_context).toMatchObject({
+        // Merged, not replaced: the request-time customer snapshot survives the
+        // stamp, so the operator sees whose money it is AND why the agent asked.
+        customer_id: 'cust_1001',
+        plan: 'free',
+        rationale: turn.decision.rationale,
       });
+    });
 
-      it('B15b: a stamp that fails costs the audit field, never the turn', async () => {
-        // The stamp is repair of an audit field on rows that are ALREADY
-        // committed, and it runs after the turn's transaction on its own
-        // connection. Letting it throw put a decision, an agent reply and a
-        // filed refund in the database and then answered the caller 500 - which
-        // also burns the Idempotency-Key, so the client's retry is refused and
-        // the operator sees a failed request whose effects all landed.
-        //
-        // A missing `rationale` in the approval payload is a real cost: the
-        // operator loses the WHY behind the refund they are being asked to
-        // authorise. It is still the cheaper half by a wide margin, and the log
-        // line names the row so it can be repaired.
-        const stamp = jest
-          .spyOn(ctx.app.get(SideEffectsService), 'stampTurnRationale')
-          .mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+    it('B15b: a stamp that fails costs the audit field, never the turn', async () => {
+      // The stamp is repair of an audit field on rows that are ALREADY
+      // committed, and it runs after the turn's transaction on its own
+      // connection. Letting it throw put a decision, an agent reply and a
+      // filed refund in the database and then answered the caller 500 - which
+      // also burns the Idempotency-Key, so the client's retry is refused and
+      // the operator sees a failed request whose effects all landed.
+      //
+      // A missing `rationale` in the approval payload is a real cost: the
+      // operator loses the WHY behind the refund they are being asked to
+      // authorise. It is still the cheaper half by a wide margin, and the log
+      // line names the row so it can be repaired.
+      const stamp = jest
+        .spyOn(ctx.app.get(SideEffectsService), 'stampTurnRationale')
+        .mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
 
-        let filed: Awaited<ReturnType<typeof fileRefundOnTicket1>>;
-        try {
-          filed = await fileRefundOnTicket1();
-        } finally {
-          stamp.mockRestore();
-        }
+      let filed: Awaited<ReturnType<typeof fileRefundOnTicket1>>;
+      try {
+        filed = await fileRefundOnTicket1();
+      } finally {
+        stamp.mockRestore();
+      }
 
-        const conv = json(await get(`/conversations/${filed.conversationId}`));
-        expect(conv.turns).toHaveLength(1);
-        expect(conv.turns[0].status).toBe('ok');
-        expect(conv.side_effects).toHaveLength(1);
-        expect(conv.side_effects[0].status).toBe('pending_approval');
-        // The one thing actually lost: the rationale never reached the row.
-        // Everything the turn committed is intact and the customer got a reply.
-        expect(conv.side_effects[0].decision_context.rationale).toBeUndefined();
-        expect(conv.side_effects[0].decision_context.customer_id).toBe('cust_1001');
-        expect(conv.messages.filter((m: { role: string }) => m.role === 'agent')).toHaveLength(1);
-      });
+      const conv = json(await get(`/conversations/${filed.conversationId}`));
+      expect(conv.turns).toHaveLength(1);
+      expect(conv.turns[0].status).toBe('ok');
+      expect(conv.side_effects).toHaveLength(1);
+      expect(conv.side_effects[0].status).toBe('pending_approval');
+      // The one thing actually lost: the rationale never reached the row.
+      // Everything the turn committed is intact and the customer got a reply.
+      expect(conv.side_effects[0].decision_context.rationale).toBeUndefined();
+      expect(conv.side_effects[0].decision_context.customer_id).toBe('cust_1001');
+      expect(conv.messages.filter((m: { role: string }) => m.role === 'agent')).toHaveLength(1);
+    });
 
-      it('B15: a turn stamps only the rows it filed, never another turn\'s', async () => {
-        const first = await fileRefundOnTicket1();
+    it("B15: a turn stamps only the rows it filed, never another turn's", async () => {
+      const first = await fileRefundOnTicket1();
 
-        // A second turn on the same ticket, filing a different charge.
-        ctx.llm.script([
-          { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f23c') }] },
-          {
-            kind: 'decision',
-            decision: decisionFixture({
-              next_action: 'escalate_to_human',
-              rationale: 'Second turn: the operator asked about the other duplicate charge.',
-            }),
-          },
-        ]);
-        const second = json(
-          await post(`/conversations/${first.conversationId}/messages`, {
-            role: 'operator',
-            content: 'What about the other duplicate?',
-            // The operator authorizes the second refund; without it there is no
-            // second row to stamp and nothing for this test to separate.
-            authorize_actions: true,
+      // A second turn on the same ticket, filing a different charge.
+      ctx.llm.script([
+        { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f23c') }] },
+        {
+          kind: 'decision',
+          decision: decisionFixture({
+            next_action: 'escalate_to_human',
+            rationale: 'Second turn: the operator asked about the other duplicate charge.',
           }),
-        );
+        },
+      ]);
+      const second = json(
+        await post(`/conversations/${first.conversationId}/messages`, {
+          role: 'operator',
+          content: 'What about the other duplicate?',
+          // The operator authorizes the second refund; without it there is no
+          // second row to stamp and nothing for this test to separate.
+          authorize_actions: true,
+        }),
+      );
 
-        // No manual stamp anywhere: each turn stamps its own rows as it commits.
-        const conv = json(await get(`/conversations/${first.conversationId}`));
-        const rows: Array<{ requested_by_turn_id: string; decision_context: { rationale?: string } }> =
-          conv.side_effects;
-        expect(rows).toHaveLength(2);
+      // No manual stamp anywhere: each turn stamps its own rows as it commits.
+      const conv = json(await get(`/conversations/${first.conversationId}`));
+      const rows: Array<{
+        requested_by_turn_id: string;
+        decision_context: { rationale?: string };
+      }> = conv.side_effects;
+      expect(rows).toHaveLength(2);
 
-        const fromSecond = rows.find((r) => r.requested_by_turn_id === second.turn_id)!;
-        const fromFirst = rows.find((r) => r.requested_by_turn_id === first.turnId)!;
-        expect(fromSecond.decision_context.rationale).toBe(second.decision.rationale);
-        // Turn one's row keeps turn ONE's reasoning. The stamp is scoped by
-        // `requested_by_turn_id`, or the audit trail starts attributing one
-        // decision's reasoning to another decision's request.
-        expect(fromFirst.decision_context.rationale).toContain('ch_3f21a is the intended purchase');
-        expect(fromFirst.decision_context.rationale).not.toBe(second.decision.rationale);
-      });
+      const fromSecond = rows.find((r) => r.requested_by_turn_id === second.turn_id)!;
+      const fromFirst = rows.find((r) => r.requested_by_turn_id === first.turnId)!;
+      expect(fromSecond.decision_context.rationale).toBe(second.decision.rationale);
+      // Turn one's row keeps turn ONE's reasoning. The stamp is scoped by
+      // `requested_by_turn_id`, or the audit trail starts attributing one
+      // decision's reasoning to another decision's request.
+      expect(fromFirst.decision_context.rationale).toContain('ch_3f21a is the intended purchase');
+      expect(fromFirst.decision_context.rationale).not.toBe(second.decision.rationale);
+    });
   });
 
   /**

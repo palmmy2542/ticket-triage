@@ -12,7 +12,14 @@
  */
 import OpenAI from 'openai';
 
-import { LlmUnavailableError, type AgentLogger, type LlmClient, type LlmMessage, type LlmRequest, type LlmResponse } from '../types';
+import {
+  LlmUnavailableError,
+  type AgentLogger,
+  type LlmClient,
+  type LlmMessage,
+  type LlmRequest,
+  type LlmResponse,
+} from '../types';
 
 export interface OpenAiLlmOptions {
   apiKey: string;
@@ -43,7 +50,12 @@ export class OpenAiLlm implements LlmClient {
   async complete(request: LlmRequest): Promise<LlmResponse> {
     const startedAt = Date.now();
     this.options.log?.debug(
-      { event: 'llm.request', model: this.model, messages: request.messages.length, tools: request.tools.length },
+      {
+        event: 'llm.request',
+        model: this.model,
+        messages: request.messages.length,
+        tools: request.tools.length,
+      },
       'calling openai',
     );
 
@@ -61,7 +73,9 @@ export class OpenAiLlm implements LlmClient {
           },
         })),
         tool_choice: 'auto',
-        ...(this.options.temperature === undefined ? {} : { temperature: this.options.temperature }),
+        ...(this.options.temperature === undefined
+          ? {}
+          : { temperature: this.options.temperature }),
         response_format: {
           type: 'json_schema',
           json_schema: {

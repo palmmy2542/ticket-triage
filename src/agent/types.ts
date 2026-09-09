@@ -133,11 +133,7 @@ export type ToolRegistry = ReadonlyMap<string, ToolDescriptor>;
 // ---------------------------------------------------------------------------
 
 export type SideEffectStatus =
-  | 'pending_approval'
-  | 'executing'
-  | 'succeeded'
-  | 'failed'
-  | 'rejected';
+  'pending_approval' | 'executing' | 'succeeded' | 'failed' | 'rejected';
 
 /**
  * The `dedup_scope_key` value for a globally-scoped effect.
@@ -158,10 +154,8 @@ export const GLOBAL_DEDUP_SCOPE_KEY = 'global';
  * and it is the kind of rule that drifts when each store computes it itself -
  * which is what the shared contract test over this port exists to catch.
  */
-export const dedupScopeKeyFor = (
-  scope: DedupScope | undefined,
-  conversationId: string,
-): string => (scope === 'global' ? GLOBAL_DEDUP_SCOPE_KEY : conversationId);
+export const dedupScopeKeyFor = (scope: DedupScope | undefined, conversationId: string): string =>
+  scope === 'global' ? GLOBAL_DEDUP_SCOPE_KEY : conversationId;
 
 export interface SideEffectRecord {
   id: string;

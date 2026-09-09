@@ -183,7 +183,12 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
   let llmCalls = 0;
 
   log.info(
-    { event: 'agent.turn.start', trace_id: traceId, conversation_id: conversationId, model: llm.model },
+    {
+      event: 'agent.turn.start',
+      trace_id: traceId,
+      conversation_id: conversationId,
+      model: llm.model,
+    },
     'agent turn started',
   );
 
@@ -209,14 +214,21 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
         const parsed = parseModelDecision(response.content);
         if (!parsed.ok) {
           failure = parsed.error;
-          log.error({ event: 'decision.invalid', trace_id: traceId, reason: parsed.error }, 'model output rejected');
+          log.error(
+            { event: 'decision.invalid', trace_id: traceId, reason: parsed.error },
+            'model output rejected',
+          );
           break;
         }
         modelDecision = parsed.value;
         break;
       }
 
-      messages.push({ role: 'assistant', content: response.content, toolCalls: response.toolCalls });
+      messages.push({
+        role: 'assistant',
+        content: response.content,
+        toolCalls: response.toolCalls,
+      });
 
       // Policy is applied to every call BEFORE any of them execute, so the
       // side-effect budget cannot be overspent by a parallel batch.
@@ -276,7 +288,10 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
       error instanceof LlmUnavailableError
         ? `llm_unavailable: ${error.message}`
         : `agent_error: ${(error as Error).message}`;
-    log.error({ event: 'agent.turn.error', trace_id: traceId, reason: failure }, 'agent turn failed');
+    log.error(
+      { event: 'agent.turn.error', trace_id: traceId, reason: failure },
+      'agent turn failed',
+    );
   }
 
   // The service pages on its own evidence, whatever the model decided. Runs
@@ -367,7 +382,10 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
       seq,
       toolName: attemptedName,
       args: null,
-      result: { ok: false, error: { code: decision.code, message: decision.message, details: decision.details } },
+      result: {
+        ok: false,
+        error: { code: decision.code, message: decision.message, details: decision.details },
+      },
       policyOutcome: 'denied',
       status: 'denied',
       latencyMs: 0,
@@ -419,7 +437,11 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
       });
 
       if (row.status === 'succeeded') {
-        return finish({ ok: true, ...(row.result as object), note: 'already executed after approval' }, 'succeeded', row.id);
+        return finish(
+          { ok: true, ...(row.result as object), note: 'already executed after approval' },
+          'succeeded',
+          row.id,
+        );
       }
       if (row.status === 'executing') {
         return finish(
@@ -435,7 +457,10 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
       }
       if (row.status === 'rejected') {
         return finish(
-          { ok: false, error: { code: 'rejected_by_human', message: 'A human rejected this action' } },
+          {
+            ok: false,
+            error: { code: 'rejected_by_human', message: 'A human rejected this action' },
+          },
           'denied',
           row.id,
         );
@@ -470,7 +495,10 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
       }
       if (claim.outcome === 'in_flight') {
         return finish(
-          { ok: false, error: { code: 'in_flight', message: 'The same action is already running' } },
+          {
+            ok: false,
+            error: { code: 'in_flight', message: 'The same action is already running' },
+          },
           'failed',
           claim.record.id,
         );
@@ -502,7 +530,13 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
     // A read tool or the store threw. The turn continues: the model is told the
     // tool failed and can still produce a decision (usually an escalation).
     log.warn(
-      { event: 'tool.error', trace_id: traceId, tool: tool.name, seq, reason: (error as Error).message },
+      {
+        event: 'tool.error',
+        trace_id: traceId,
+        tool: tool.name,
+        seq,
+        reason: (error as Error).message,
+      },
       'tool call threw',
     );
     return finish(
@@ -573,7 +607,12 @@ async function pageIfRegionIsDown(input: {
   );
   if (alreadyPaged) {
     log.info(
-      { event: 'rule.paging.skipped', trace_id: traceId, region: outage.region, reason: 'agent_already_paged' },
+      {
+        event: 'rule.paging.skipped',
+        trace_id: traceId,
+        region: outage.region,
+        reason: 'agent_already_paged',
+      },
       'deterministic paging rule had nothing to do',
     );
     return [];
@@ -581,7 +620,10 @@ async function pageIfRegionIsDown(input: {
 
   const tool = registry.get('open_incident');
   if (!tool) {
-    log.error({ event: 'rule.paging.unavailable', trace_id: traceId }, 'open_incident is not registered');
+    log.error(
+      { event: 'rule.paging.unavailable', trace_id: traceId },
+      'open_incident is not registered',
+    );
     return [];
   }
 
@@ -894,7 +936,8 @@ export function applyGuards(input: {
     // persisted turn, and the `decision.final` log line wholesale. The audit
     // value is in seeing what it tried to say, not in storing all 4000 chars.
     if (discarded) {
-      const excerpt = discarded.length > 300 ? `${discarded.slice(0, 300)}...[truncated]` : discarded;
+      const excerpt =
+        discarded.length > 300 ? `${discarded.slice(0, 300)}...[truncated]` : discarded;
       notes.push(`${DISCARDED_DRAFT_NOTE} ${excerpt}`);
     }
     customerReplyDraft = null;

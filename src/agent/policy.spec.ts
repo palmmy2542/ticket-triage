@@ -147,9 +147,12 @@ describe('autonomy policy', () => {
 
     it('still allows every read, so the turn can answer the question', () => {
       // The whole point of the split: refusing to ACT is not refusing to look.
-      expect(callUnauthorized('search_knowledge_base', { query: 'refund policy', limit: null }).kind)
-        .toBe('allow');
-      expect(callUnauthorized('get_customer_account', { customer_id: 'cust_1001' }).kind).toBe('allow');
+      expect(
+        callUnauthorized('search_knowledge_base', { query: 'refund policy', limit: null }).kind,
+      ).toBe('allow');
+      expect(callUnauthorized('get_customer_account', { customer_id: 'cust_1001' }).kind).toBe(
+        'allow',
+      );
       expect(callUnauthorized('check_service_status', { region: null }).kind).toBe('allow');
     });
   });

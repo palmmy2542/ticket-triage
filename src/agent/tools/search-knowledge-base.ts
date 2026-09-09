@@ -13,10 +13,58 @@ const Args = z.strictObject({
 
 // Words that match everything and rank nothing.
 const STOPWORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'but', 'if', 'is', 'are', 'was', 'were', 'be', 'been', 'to', 'of',
-  'in', 'on', 'for', 'with', 'my', 'me', 'i', 'we', 'you', 'it', 'this', 'that', 'at', 'as', 'by',
-  'from', 'not', 'no', 'do', 'does', 'did', 'can', 'cant', 'how', 'what', 'why', 'when', 'there',
-  'have', 'has', 'get', 'got', 'still', 'now', 'any', 'please', 'help',
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'if',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'to',
+  'of',
+  'in',
+  'on',
+  'for',
+  'with',
+  'my',
+  'me',
+  'i',
+  'we',
+  'you',
+  'it',
+  'this',
+  'that',
+  'at',
+  'as',
+  'by',
+  'from',
+  'not',
+  'no',
+  'do',
+  'does',
+  'did',
+  'can',
+  'cant',
+  'how',
+  'what',
+  'why',
+  'when',
+  'there',
+  'have',
+  'has',
+  'get',
+  'got',
+  'still',
+  'now',
+  'any',
+  'please',
+  'help',
 ]);
 
 export function tokenize(text: string): string[] {
@@ -95,7 +143,11 @@ const dfCache = new WeakMap<readonly KbDoc[], Map<string, number>>();
  * accumulate its way in (eval t7's pasted-in ticket text reaches the seats
  * article through the ordinary English word `workspace`).
  */
-export function scoreDoc(doc: KbDoc, queryTokens: string[], docs: readonly KbDoc[] = KB_DOCS): number {
+export function scoreDoc(
+  doc: KbDoc,
+  queryTokens: string[],
+  docs: readonly KbDoc[] = KB_DOCS,
+): number {
   if (queryTokens.length === 0) return 0;
   const frequencies = documentFrequencies(docs);
   const supported = [...new Set(queryTokens)]
@@ -164,25 +216,29 @@ export const MIN_RELEVANCE = 0.45;
 
 export function searchKb(query: string, limit: number, docs: KbDoc[] = KB_DOCS) {
   const tokens = tokenize(query);
-  return docs
-    // `docs` is passed on: token specificity is a property of the corpus being
-    // searched, so a caller searching a different set must not be scored
-    // against KB_DOCS' word frequencies.
-    .map((doc) => ({ doc, score: Number(scoreDoc(doc, tokens, docs).toFixed(3)) }))
-    .filter((r) => r.score >= MIN_RELEVANCE)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(({ doc, score }) => ({
-      id: doc.id,
-      title: doc.title,
-      score,
-      // Full body: the docs are short, and truncating is how a correct retrieval
-      // still produces a wrong answer.
-      content: doc.body,
-    }));
+  return (
+    docs
+      // `docs` is passed on: token specificity is a property of the corpus being
+      // searched, so a caller searching a different set must not be scored
+      // against KB_DOCS' word frequencies.
+      .map((doc) => ({ doc, score: Number(scoreDoc(doc, tokens, docs).toFixed(3)) }))
+      .filter((r) => r.score >= MIN_RELEVANCE)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map(({ doc, score }) => ({
+        id: doc.id,
+        title: doc.title,
+        score,
+        // Full body: the docs are short, and truncating is how a correct retrieval
+        // still produces a wrong answer.
+        content: doc.body,
+      }))
+  );
 }
 
-export function createSearchKnowledgeBaseTool(config: MockToolConfig): ToolDescriptor<z.infer<typeof Args>> {
+export function createSearchKnowledgeBaseTool(
+  config: MockToolConfig,
+): ToolDescriptor<z.infer<typeof Args>> {
   return {
     name: 'search_knowledge_base',
     description:

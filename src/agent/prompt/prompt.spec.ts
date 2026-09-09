@@ -68,12 +68,13 @@ describe('systemPrompt', () => {
     expect(prompt).toContain('not a substitute for paging'); // page, do not just escalate
     expect(prompt).toContain('Escalating is not free.'); // counter-pressure against over-escalation
   });
-
 });
 
 describe('buildMessages - structure', () => {
   it('puts a system message first, then exactly one user message with the customer_profile and ticket blocks', () => {
-    const messages: ConversationMessage[] = [{ role: 'customer', content: 'Help please', at: NOW.toISOString() }];
+    const messages: ConversationMessage[] = [
+      { role: 'customer', content: 'Help please', at: NOW.toISOString() },
+    ];
     const built = buildMessages({ customer: CUSTOMER, messages, now: NOW });
 
     expect(built[0]).toEqual({ role: 'system', content: systemPrompt() });
@@ -89,7 +90,11 @@ describe('buildMessages - structure', () => {
 
   it('renders customer messages inside <ticket> with relative ages, oldest first', () => {
     const messages: ConversationMessage[] = [
-      { role: 'customer', content: 'It broke three hours ago', at: new Date(NOW.getTime() - 3 * 3_600_000).toISOString() },
+      {
+        role: 'customer',
+        content: 'It broke three hours ago',
+        at: new Date(NOW.getTime() - 3 * 3_600_000).toISOString(),
+      },
       { role: 'customer', content: 'Still broken', at: NOW.toISOString() },
     ];
     const built = buildMessages({ customer: CUSTOMER, messages, now: NOW });
@@ -111,7 +116,12 @@ describe('buildMessages - structure', () => {
     ];
     const built = buildMessages({ customer: CUSTOMER, messages, now: NOW });
     // Only the ticket-carrying user turn (built[1]) should mention this text.
-    const occurrences = built.filter((m) => 'content' in m && typeof m.content === 'string' && m.content.includes('UNIQUE_CUSTOMER_TEXT'));
+    const occurrences = built.filter(
+      (m) =>
+        'content' in m &&
+        typeof m.content === 'string' &&
+        m.content.includes('UNIQUE_CUSTOMER_TEXT'),
+    );
     expect(occurrences).toHaveLength(1);
     expect(occurrences[0]).toBe(built[1]);
   });
@@ -124,9 +134,21 @@ describe('buildMessages - structure', () => {
 
   it('turns a 4-message conversation into the exact expected role sequence, operator/agent after the ticket', () => {
     const messages: ConversationMessage[] = [
-      { role: 'customer', content: 'My charge is wrong', at: new Date(NOW.getTime() - 3_600_000).toISOString() },
-      { role: 'agent', content: 'Looking into it now.', at: new Date(NOW.getTime() - 1_800_000).toISOString() },
-      { role: 'operator', content: 'Did you check the region?', at: new Date(NOW.getTime() - 900_000).toISOString() },
+      {
+        role: 'customer',
+        content: 'My charge is wrong',
+        at: new Date(NOW.getTime() - 3_600_000).toISOString(),
+      },
+      {
+        role: 'agent',
+        content: 'Looking into it now.',
+        at: new Date(NOW.getTime() - 1_800_000).toISOString(),
+      },
+      {
+        role: 'operator',
+        content: 'Did you check the region?',
+        at: new Date(NOW.getTime() - 900_000).toISOString(),
+      },
       { role: 'agent', content: 'Yes, region is healthy.', at: NOW.toISOString() },
     ];
     const built = buildMessages({ customer: CUSTOMER, messages, now: NOW });

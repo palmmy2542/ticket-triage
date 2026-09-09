@@ -6,7 +6,10 @@
  * eval both run against this fake, so the fake is only evidence about
  * production for as long as something compares the two.
  */
-import { describeSideEffectStoreContract, InMemorySideEffectStore } from './in-memory-side-effect-store';
+import {
+  describeSideEffectStoreContract,
+  InMemorySideEffectStore,
+} from './in-memory-side-effect-store';
 
 describeSideEffectStoreContract({
   name: 'InMemorySideEffectStore',

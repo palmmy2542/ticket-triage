@@ -42,7 +42,9 @@ const KNOWN_REGIONS = REGION_STATUS.map((r) => r.region);
  * region service-wide, so a model that calls this twice, a retried request, and
  * fifty separate tickets reporting the same outage all page once.
  */
-export function createOpenIncidentTool(config: MockToolConfig): ToolDescriptor<z.infer<typeof Args>> {
+export function createOpenIncidentTool(
+  config: MockToolConfig,
+): ToolDescriptor<z.infer<typeof Args>> {
   return {
     name: 'open_incident',
     // The description is what the model reads at the moment it decides, so the

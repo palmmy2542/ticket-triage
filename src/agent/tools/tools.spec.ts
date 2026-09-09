@@ -144,7 +144,10 @@ describe('search_knowledge_base - tool', () => {
   const tool = registry.get('search_knowledge_base')!;
 
   it('defaults to 3 results when limit is null', async () => {
-    const result = (await tool.execute({ query: 'billing charge payment plan export', limit: null }, ctx)) as {
+    const result = (await tool.execute(
+      { query: 'billing charge payment plan export', limit: null },
+      ctx,
+    )) as {
       result_count: number;
       results: unknown[];
     };
@@ -291,8 +294,10 @@ describe('check_service_status', () => {
 describe('issue_refund', () => {
   const tool = registry.get('issue_refund')!;
   /** Calls the tool the way the runner does: with the key its own dedupKey derived. */
-  const exec = (a: { charge_id: string; amount_cents: number; currency: string; reason: string }, c = ctx) =>
-    tool.execute(a, c, tool.dedupKey!(a, c));
+  const exec = (
+    a: { charge_id: string; amount_cents: number; currency: string; reason: string },
+    c = ctx,
+  ) => tool.execute(a, c, tool.dedupKey!(a, c));
   const args = (chargeId: string, amount = 2999) => ({
     charge_id: chargeId,
     amount_cents: amount,
@@ -318,7 +323,11 @@ describe('issue_refund', () => {
     // provider that dedups on the key we send would have collapsed two
     // customers' refunds of the same charge id into one operation.
     const own = (await tool.execute(args('ch_3f21a'), ctx, 'cust_1001:ch_3f21a')) as RefundOk;
-    const otherScope = (await tool.execute(args('ch_3f21a'), ctx, 'cust_9999:ch_3f21a')) as RefundOk;
+    const otherScope = (await tool.execute(
+      args('ch_3f21a'),
+      ctx,
+      'cust_9999:ch_3f21a',
+    )) as RefundOk;
 
     expect(own.refund_id).not.toBe(otherScope.refund_id);
     // ...and the same key is the same operation, which is the half that makes a
@@ -403,7 +412,11 @@ describe('open_incident', () => {
     a: { severity: 'sev1' | 'sev2' | 'sev3'; region: string; title: string; summary: string },
     c = ctx,
   ) => tool.execute(a, c, tool.dedupKey!(a, c));
-  const args = (region: string, severity: 'sev1' | 'sev2' | 'sev3', title = 'Regional API failures') => ({
+  const args = (
+    region: string,
+    severity: 'sev1' | 'sev2' | 'sev3',
+    title = 'Regional API failures',
+  ) => ({
     severity,
     region,
     title,
@@ -497,7 +510,12 @@ describe('open_incident', () => {
 
   it('rejects a sev1 page with a summary shorter than 40 chars', async () => {
     const result = await tool.execute(
-      { severity: 'sev1', region: 'eu-west-1', title: 'Title here', summary: 'too short to page anyone' },
+      {
+        severity: 'sev1',
+        region: 'eu-west-1',
+        title: 'Title here',
+        summary: 'too short to page anyone',
+      },
       ctx,
     );
     expect(result).toMatchObject({ ok: false, error: { code: 'summary_too_thin' } });

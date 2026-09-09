@@ -15,6 +15,8 @@
     "build": "tsc -p tsconfig.build.json && mkdir -p dist/agent/prompt && cp src/agent/prompt/*.md dist/agent/prompt/",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "jest --selectProjects unit",
     "test:e2e": "jest --selectProjects e2e --runInBand",
     "eval": "node --env-file-if-exists=.env -r ts-node/register eval/run.ts"

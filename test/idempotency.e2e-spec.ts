@@ -27,7 +27,6 @@ describe('Idempotency (e2e)', () => {
     await truncateAll(ctx.prisma);
   });
 
-
   const http = () => ctx.app.getHttpAdapter().getInstance();
   const post = (url: string, payload?: object, headers?: Record<string, string>) =>
     http().inject({ method: 'POST', url, payload, headers });

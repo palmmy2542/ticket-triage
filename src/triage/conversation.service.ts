@@ -373,7 +373,6 @@ export class ConversationService {
     };
   }
 
-
   private async loadConversationOrThrow(
     conversationId: string,
   ): Promise<{ customer: CustomerProfile }> {
@@ -420,9 +419,7 @@ export class ConversationService {
       }),
     ]);
 
-    const previous = lastTurn?.decision
-      ? DecisionSchema.safeParse(lastTurn.decision)
-      : undefined;
+    const previous = lastTurn?.decision ? DecisionSchema.safeParse(lastTurn.decision) : undefined;
 
     return {
       customer,
@@ -436,8 +433,6 @@ export class ConversationService {
     };
   }
 }
-
-
 
 function readAt(meta: Prisma.JsonValue | null, fallback: Date): string {
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {

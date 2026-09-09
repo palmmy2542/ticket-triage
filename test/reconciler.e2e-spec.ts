@@ -237,7 +237,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     const report = await reconciler.sweep();
     expect(report.sideEffects.redriven).toEqual([stranded.id]);
 
-    const after = await ctx.prisma.sideEffect.findMany({ where: { id: { in: [pending.id, settled.id] } } });
+    const after = await ctx.prisma.sideEffect.findMany({
+      where: { id: { in: [pending.id, settled.id] } },
+    });
     expect(after.map((r) => r.status).sort()).toEqual(['pending_approval', 'succeeded']);
     // No money moved and no lease was renewed on either of them.
     for (const row of after) {
@@ -282,7 +284,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     expect((after.result as { incident_id: string }).incident_id).toBe(
       stableId('inc', 'asia-southeast-1', 10),
     );
-    expect((after.result as { paged: string[] }).paged).toEqual(['oncall-platform-asia-southeast-1']);
+    expect((after.result as { paged: string[] }).paged).toEqual([
+      'oncall-platform-asia-southeast-1',
+    ]);
     expect((await ctx.prisma.agentTurn.findUniqueOrThrow({ where: { id: turn.id } })).status).toBe(
       'running',
     );
@@ -319,7 +323,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     expect(report.sideEffects.redriven).toEqual([]);
     expect(report.sideEffects.quarantined).toEqual([]);
     // The provider was never called: no result was recorded.
-    expect((await ctx.prisma.sideEffect.findUniqueOrThrow({ where: { id: row.id } })).result).toBeNull();
+    expect(
+      (await ctx.prisma.sideEffect.findUniqueOrThrow({ where: { id: row.id } })).result,
+    ).toBeNull();
   });
 
   it('H1d: a re-drive that lost the row mid-call does not overwrite the recorded answer', async () => {
@@ -478,9 +484,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     });
     expect(messages.map((m) => m.role)).toEqual(['customer', 'agent']);
     expect(messages[1]?.content).toBe('Both duplicate charges are refunded.');
-    expect((await ctx.prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).status).toBe(
-      'open',
-    );
+    expect(
+      (await ctx.prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).status,
+    ).toBe('open');
   });
 
   it('H3b: a turn that commits while the sweep is blocked keeps its real decision', async () => {
@@ -528,9 +534,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     expect(after.error).toBeNull();
     // No fail-safe reply appended on top of the real one.
     expect(await ctx.prisma.message.count()).toBe(0);
-    expect((await ctx.prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).status).toBe(
-      'open',
-    );
+    expect(
+      (await ctx.prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).status,
+    ).toBe('open');
   }, 30_000);
 
   it('H3c: a turn already in a terminal status is not re-reconciled', async () => {
@@ -609,8 +615,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     expect(report.turns.failedSafe).toEqual([]);
     expect(report.turns.superseded).toEqual([abandoned.id]);
     // The lease is still released, which is what stops it being swept forever.
-    expect((await ctx.prisma.agentTurn.findUniqueOrThrow({ where: { id: abandoned.id } })).status)
-      .toBe('failed');
+    expect(
+      (await ctx.prisma.agentTurn.findUniqueOrThrow({ where: { id: abandoned.id } })).status,
+    ).toBe('failed');
 
     // Contiguous, unique seqs prove the appends serialised rather than raced.
     const messages = await ctx.prisma.message.findMany({
@@ -624,7 +631,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     // all four committed: the deadlock this test exists for would have aborted
     // one of them.
     expect(messages).toHaveLength(7);
-    expect(messages.filter((m) => m.meta && (m.meta as { reconciled?: boolean }).reconciled)).toHaveLength(0);
+    expect(
+      messages.filter((m) => m.meta && (m.meta as { reconciled?: boolean }).reconciled),
+    ).toHaveLength(0);
   }, 30_000);
 
   it('H2c: a re-drive that throws leaves the row `executing` for the next sweep', async () => {
@@ -782,9 +791,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     const report = await reconciler.sweep();
     expect(report.idempotencyKeys.purged).toBe(2);
 
-    const remaining = (
-      await ctx.prisma.idempotencyKey.findMany({ orderBy: { key: 'asc' } })
-    ).map((r) => [r.key, r.status]);
+    const remaining = (await ctx.prisma.idempotencyKey.findMany({ orderBy: { key: 'asc' } })).map(
+      (r) => [r.key, r.status],
+    );
     expect(remaining).toEqual([
       ['fresh-completed', 'completed'],
       // Aged out to a replayable failure by the stale pass in this same sweep.
@@ -824,8 +833,9 @@ describe('Reconciler: expiry for executing / running / in_progress (e2e)', () =>
     expect(report.turns.failedSafe).toEqual([]);
     expect(report.turns.superseded).toEqual([]);
 
-    expect((await ctx.prisma.sideEffect.findUniqueOrThrow({ where: { id: sideEffect.id } })).status)
-      .toBe('executing');
+    expect(
+      (await ctx.prisma.sideEffect.findUniqueOrThrow({ where: { id: sideEffect.id } })).status,
+    ).toBe('executing');
     expect((await ctx.prisma.agentTurn.findUniqueOrThrow({ where: { id: turn.id } })).status).toBe(
       'running',
     );

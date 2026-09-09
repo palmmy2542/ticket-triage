@@ -18,7 +18,10 @@ const PROMPT_FILE = `system.${PROMPT_VERSION}.md`;
 
 /** Comments are for engineers, not the model: strip them before sending. */
 function stripComments(markdown: string): string {
-  return markdown.replace(/<!--[\s\S]*?-->/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  return markdown
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 let cached: string | undefined;
@@ -73,9 +76,7 @@ export function buildMessages(input: BuildMessagesInput): LlmMessage[] {
   const { customer, messages, previousDecision, now } = input;
 
   const customerMessages = messages.filter((m) => m.role === 'customer');
-  const thread = customerMessages
-    .map((m) => `[${relativeAge(m.at, now)}] ${m.content}`)
-    .join('\n');
+  const thread = customerMessages.map((m) => `[${relativeAge(m.at, now)}] ${m.content}`).join('\n');
 
   const profile = [
     `plan: ${customer.plan}`,

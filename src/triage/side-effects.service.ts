@@ -443,7 +443,10 @@ export class SideEffectsService {
       result = await tool.execute(parsedArgs.data, ctx, row.dedupKey);
       status = (result as { ok?: boolean }).ok === false ? 'failed' : 'succeeded';
     } catch (error) {
-      result = { ok: false, error: { code: 'downstream_unavailable', message: (error as Error).message } };
+      result = {
+        ok: false,
+        error: { code: 'downstream_unavailable', message: (error as Error).message },
+      };
       status = 'failed';
     }
 
@@ -603,7 +606,12 @@ export class SideEffectsService {
     });
   }
 
-  private log(event: string, id: string, status: string, input: { toolName: string; dedupKey: string }) {
+  private log(
+    event: string,
+    id: string,
+    status: string,
+    input: { toolName: string; dedupKey: string },
+  ) {
     this.logger.log({
       event,
       side_effect_id: id,
@@ -615,7 +623,5 @@ export class SideEffectsService {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError && error.code === UNIQUE_VIOLATION
-  );
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === UNIQUE_VIOLATION;
 }

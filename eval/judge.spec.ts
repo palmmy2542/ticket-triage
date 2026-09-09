@@ -7,7 +7,12 @@ import { buildEvidence, judgeDraft, VerdictSchema } from './judge';
 import { FakeLlm } from '../src/agent/llm/fake';
 import { strictJsonSchema } from '../src/agent/schema';
 import type { ToolCallRecord } from '../src/agent/runner';
-import { LlmUnavailableError, type LlmClient, type LlmRequest, type LlmResponse } from '../src/agent/types';
+import {
+  LlmUnavailableError,
+  type LlmClient,
+  type LlmRequest,
+  type LlmResponse,
+} from '../src/agent/types';
 
 const record = (
   toolName: string,
@@ -27,7 +32,14 @@ const record = (
 const KB = record('search_knowledge_base', {
   ok: true,
   result_count: 1,
-  results: [{ id: 'appearance-dark-mode', title: 'Dark mode', score: 1.2, content: 'Dark mode ships in release 4.2.' }],
+  results: [
+    {
+      id: 'appearance-dark-mode',
+      title: 'Dark mode',
+      score: 1.2,
+      content: 'Dark mode ships in release 4.2.',
+    },
+  ],
 });
 
 /** Returns a canned verdict and captures what it was asked. */
@@ -63,10 +75,14 @@ describe('buildEvidence', () => {
 
   it('tags side effects as actions, carrying their status', () => {
     // So the judge can tell "we filed a refund request" from "we refunded you".
-    const refund = record('issue_refund', { ok: true, status: 'pending_approval' }, {
-      status: 'pending_approval',
-      policyOutcome: 'requires_approval',
-    });
+    const refund = record(
+      'issue_refund',
+      { ok: true, status: 'pending_approval' },
+      {
+        status: 'pending_approval',
+        policyOutcome: 'requires_approval',
+      },
+    );
     const evidence = buildEvidence([refund]);
     expect(evidence).toContain('<action tool="issue_refund" status="pending_approval">');
     expect(evidence).not.toContain('<evidence tool="issue_refund"');
@@ -74,7 +90,11 @@ describe('buildEvidence', () => {
 
   it('excludes failed reads and denied actions', () => {
     const failed = record('check_service_status', { ok: false }, { status: 'failed' });
-    const denied = record('issue_refund', { ok: false }, { status: 'denied', policyOutcome: 'denied' });
+    const denied = record(
+      'issue_refund',
+      { ok: false },
+      { status: 'denied', policyOutcome: 'denied' },
+    );
     expect(buildEvidence([failed, denied])).toBe('');
   });
 });
@@ -89,7 +109,9 @@ describe('judgeDraft', () => {
       ticket: 'Do you support dark mode?',
     });
 
-    const sent = judge.requests[0]!.messages.map((m) => ('content' in m ? m.content : '')).join('\n');
+    const sent = judge.requests[0]!.messages.map((m) => ('content' in m ? m.content : '')).join(
+      '\n',
+    );
     expect(sent).toContain('<draft_reply>');
     expect(sent).toContain('release 4.2');
     expect(sent).toContain('<ticket>');
@@ -112,7 +134,12 @@ describe('judgeDraft', () => {
       contradicts_evidence: true,
       reasoning: 'The article says 4.2.',
     });
-    const result = await judgeDraft({ llm: judge, draft: 'ships in 5.0', records: [KB], ticket: 't' });
+    const result = await judgeDraft({
+      llm: judge,
+      draft: 'ships in 5.0',
+      records: [KB],
+      ticket: 't',
+    });
     expect(result.verdict).toMatchObject({ grounded: false, contradicts_evidence: true });
     expect(result.model).toBe('judge-model');
   });
@@ -120,17 +147,30 @@ describe('judgeDraft', () => {
   // Every failure below must produce a null verdict. A judge that could not
   // answer looking like a pass is worse than having no judge.
   it('skips when there is no draft', async () => {
-    const result = await judgeDraft({ llm: new RecordingJudge(GROUNDED), draft: null, records: [KB], ticket: 't' });
+    const result = await judgeDraft({
+      llm: new RecordingJudge(GROUNDED),
+      draft: null,
+      records: [KB],
+      ticket: 't',
+    });
     expect(result).toMatchObject({ verdict: null, skipped: 'no_draft' });
   });
 
   it('skips when nothing was gathered to judge against', async () => {
-    const result = await judgeDraft({ llm: new RecordingJudge(GROUNDED), draft: 'anything', records: [], ticket: 't' });
+    const result = await judgeDraft({
+      llm: new RecordingJudge(GROUNDED),
+      draft: 'anything',
+      records: [],
+      ticket: 't',
+    });
     expect(result).toMatchObject({ verdict: null, skipped: 'no_evidence' });
   });
 
   it('reports judge_unavailable rather than a pass when the provider fails', async () => {
-    const broken = new FakeLlm([{ kind: 'error', error: new LlmUnavailableError('timeout') }], 'judge-model');
+    const broken = new FakeLlm(
+      [{ kind: 'error', error: new LlmUnavailableError('timeout') }],
+      'judge-model',
+    );
     const result = await judgeDraft({ llm: broken, draft: 'x', records: [KB], ticket: 't' });
     expect(result).toMatchObject({ verdict: null, skipped: 'judge_unavailable' });
   });
@@ -142,7 +182,10 @@ describe('judgeDraft', () => {
       skipped: 'judge_invalid_output',
     });
 
-    const wrong = new FakeLlm([{ kind: 'raw', content: JSON.stringify({ grounded: 'yes' }) }], 'judge-model');
+    const wrong = new FakeLlm(
+      [{ kind: 'raw', content: JSON.stringify({ grounded: 'yes' }) }],
+      'judge-model',
+    );
     expect(await judgeDraft({ llm: wrong, draft: 'x', records: [KB], ticket: 't' })).toMatchObject({
       verdict: null,
       skipped: 'judge_invalid_output',

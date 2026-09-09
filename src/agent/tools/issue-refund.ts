@@ -44,7 +44,9 @@ const Args = z.strictObject({
  *  3. The charge is resolved inside `ctx.customer`'s account only - see the
  *     comment in `execute`.
  */
-export function createIssueRefundTool(config: MockToolConfig): ToolDescriptor<z.infer<typeof Args>> {
+export function createIssueRefundTool(
+  config: MockToolConfig,
+): ToolDescriptor<z.infer<typeof Args>> {
   return {
     name: 'issue_refund',
     description:

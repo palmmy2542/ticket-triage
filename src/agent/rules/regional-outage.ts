@@ -83,7 +83,8 @@ export function incidentFor(
   outage: RegionalOutage,
   conversationId: string,
 ): { severity: 'sev1' | 'sev2'; region: string; title: string; summary: string } {
-  const services = outage.affectedServices.length > 0 ? outage.affectedServices.join(', ') : 'unknown';
+  const services =
+    outage.affectedServices.length > 0 ? outage.affectedServices.join(', ') : 'unknown';
   const rate = outage.apiErrorRate === null ? 'unknown' : outage.apiErrorRate.toString();
 
   return {
