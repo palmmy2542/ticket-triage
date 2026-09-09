@@ -1,0 +1,13 @@
+-- Decision context for human-gated side effects.
+--
+-- The approval payload was id, tool, status, dedup_key, args, result, turn id
+-- and timestamps. For a refund `args` is {charge_id, amount_cents, currency,
+-- reason}, so everything a human had when authorising a real payment was a
+-- charge id, a number, and whatever the model wrote in `reason`. Not whose
+-- account it is, not what plan they are on, not what the agent concluded.
+--
+-- Nullable, and deliberately not backfilled: rows filed before this column
+-- existed have no captured context, and inventing one from today's
+-- `conversations.customer` would put a value in the audit trail that was never
+-- what the requester saw. NULL is the honest answer for those.
+ALTER TABLE "side_effects" ADD COLUMN "decision_context" JSONB;

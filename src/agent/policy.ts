@@ -29,7 +29,8 @@ export type DenyCode =
   | 'malformed_arguments'
   | 'invalid_arguments'
   | 'side_effect_budget_exhausted'
-  | 'injection_suspected';
+  | 'injection_suspected'
+  | 'side_effects_not_authorized';
 
 export interface EvaluateInput {
   registry: ToolRegistry;
@@ -46,10 +47,32 @@ export interface EvaluateInput {
    * operator who is clicking approve.
    */
   injectionSuspected?: boolean;
+  /**
+   * Whether this turn may take actions at all. False for an operator's
+   * natural-language question.
+   *
+   * A question is not an instruction: "what about the other duplicate charge?"
+   * re-triages the ticket and reads whatever it needs, but the phrasing of a
+   * question must not be what files a refund or wakes an engineer. Authorizing
+   * an action is a separate, explicit act - the operator's button - and it
+   * arrives here as `true`, not as a differently-worded sentence.
+   *
+   * Defaults to true, because the first triage of an inbound ticket IS the
+   * authorization: that is the job the service was handed.
+   */
+  sideEffectsAuthorized?: boolean;
 }
 
 export function evaluate(input: EvaluateInput): PolicyDecision {
-  const { registry, name, rawArgs, ctx, sideEffectBudget, injectionSuspected = false } = input;
+  const {
+    registry,
+    name,
+    rawArgs,
+    ctx,
+    sideEffectBudget,
+    injectionSuspected = false,
+    sideEffectsAuthorized = true,
+  } = input;
 
   const tool = registry.get(name);
   if (!tool) {
@@ -97,6 +120,17 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
           'requested from it. A human must handle the ticket.',
       };
     }
+    if (!sideEffectsAuthorized) {
+      // Told to the model as data, with the remedy in it: the turn can still say
+      // which action it believes is needed, and the operator can authorize it.
+      return {
+        kind: 'deny',
+        code: 'side_effects_not_authorized',
+        message:
+          'This turn answers a question and may not take actions. Say which action you believe ' +
+          'is needed and why; an operator authorizes it explicitly.',
+      };
+    }
     // A runaway loop that pages on-call twenty times is a real failure mode, so
     // the budget is enforced here rather than trusted to the prompt.
     if (sideEffectBudget <= 0) {
@@ -113,17 +147,4 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
   }
 
   return { kind: 'allow', tool, args };
-}
-
-/** Human-readable summary of the boundary, for the README and the audit endpoint. */
-export function describePolicy(registry: ToolRegistry): Array<{
-  tool: string;
-  autonomy: string;
-  side_effecting: boolean;
-}> {
-  return [...registry.values()].map((tool) => ({
-    tool: tool.name,
-    autonomy: tool.autonomy,
-    side_effecting: tool.sideEffecting,
-  }));
 }

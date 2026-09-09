@@ -244,6 +244,10 @@ describe('Tickets: ingest, audit trail, autonomous side effects, contract shapes
       await post(`/conversations/${ingest.conversation_id}/messages`, {
         role: 'operator',
         content: 'Any update on the outage?',
+        // Authorized on purpose: what C2 asserts is that DEDUP stops the second
+        // page, and an unauthorized turn would be stopped one layer earlier by
+        // the policy - a pass that says nothing about the unique index.
+        authorize_actions: true,
       });
 
       conv = json(await get(`/conversations/${ingest.conversation_id}`));

@@ -15,6 +15,23 @@ import { createOpenIncidentTool } from './open-incident';
 import { createSearchKnowledgeBaseTool } from './search-knowledge-base';
 import type { MockToolConfig } from './support';
 
+/**
+ * Fail at construction, not at 3am: a side-effecting tool without a
+ * server-derived dedup key cannot be made retry-safe.
+ *
+ * Exported so the test can feed it a deliberately broken descriptor and
+ * exercise *this* code. The previous test re-implemented the same `if` inside
+ * its own body, so deleting this guard left it green (verified by mutation) -
+ * the forcing function was only pretending to be tested.
+ */
+export function assertRetrySafe(tools: readonly ToolDescriptor[]): void {
+  for (const tool of tools) {
+    if (tool.sideEffecting && !tool.dedupKey) {
+      throw new Error(`Tool ${tool.name} is side-effecting but declares no dedupKey`);
+    }
+  }
+}
+
 export function createToolRegistry(config: MockToolConfig): ToolRegistry {
   const tools: ToolDescriptor[] = [
     createSearchKnowledgeBaseTool(config),
@@ -24,13 +41,7 @@ export function createToolRegistry(config: MockToolConfig): ToolRegistry {
     createOpenIncidentTool(config),
   ];
 
-  for (const tool of tools) {
-    // Fail at construction, not at 3am: a side-effecting tool without a
-    // server-derived dedup key cannot be made retry-safe.
-    if (tool.sideEffecting && !tool.dedupKey) {
-      throw new Error(`Tool ${tool.name} is side-effecting but declares no dedupKey`);
-    }
-  }
+  assertRetrySafe(tools);
 
   return new Map(tools.map((tool) => [tool.name, tool]));
 }

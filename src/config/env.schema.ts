@@ -20,6 +20,28 @@ export const envSchema = z
     MAX_SIDE_EFFECTS_PER_TURN: z.coerce.number().default(4),
     /** Simulated latency of the mocked downstream tools. Tests set 0. */
     MOCK_TOOL_LATENCY_MS: z.coerce.number().default(250),
+    /**
+     * How often the reconciliation pass runs. `0` disables the timer; the pass
+     * stays callable, which is how the tests drive it.
+     */
+    RECONCILE_INTERVAL_MS: z.coerce.number().min(0).default(60_000),
+    /**
+     * Safety factor over the DERIVED worst-case turn duration
+     * (LLM_TIMEOUT_MS x attempts-per-call x MAX_AGENT_ITERATIONS). The
+     * threshold is not a free-standing number: reconciling a turn that is still
+     * legitimately running is worse than the leak it fixes, so this multiplies
+     * a bound that already exists rather than replacing it. Minimum 1 - below
+     * that the threshold is shorter than a legal turn by construction.
+     */
+    RECONCILE_STALE_MULTIPLIER: z.coerce.number().min(1).default(2),
+    /** Rows per table per sweep. Bounds one pass's lock and pool footprint. */
+    RECONCILE_BATCH_SIZE: z.coerce.number().int().min(1).default(100),
+    /**
+     * How long a TERMINAL `idempotency_keys` row is kept. 24h matches what
+     * payment APIs promise for an idempotency key; past it the table is a
+     * liability, since nothing else ever removes a row.
+     */
+    IDEMPOTENCY_RETENTION_MS: z.coerce.number().min(0).default(86_400_000),
   })
   .superRefine((val, ctx) => {
     if (!val.FAKE_LLM && val.NODE_ENV !== 'test' && !val.OPENAI_API_KEY) {

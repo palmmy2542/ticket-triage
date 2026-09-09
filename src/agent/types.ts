@@ -64,6 +64,26 @@ export interface AgentLogger {
  */
 export type ToolAutonomy = 'auto' | 'requires_approval';
 
+/**
+ * How far a `dedupKey` reaches - i.e. which existing rows it can collide with.
+ *
+ * `conversation` (the default) is right whenever the deduplicated identity
+ * belongs to one ticket. `issue_refund` is the case that fixes the default:
+ * its key names whose money moves, and an unscoped key would let one
+ * customer's refund replay another customer's stored result.
+ *
+ * `global` is right when the identity is already service-wide. `open_incident`
+ * keys on the region, and a region is not a property of a ticket: under
+ * conversation scope the effective key was (conversation, tool, region), so one
+ * real regional outage arriving on fifty tickets filed fifty `side_effects`
+ * rows and made fifty provider calls for a single outage.
+ *
+ * The scope travels on the descriptor for the same reason `autonomy` does: a
+ * tool cannot be added without declaring how wide its dedup identity is, and
+ * there is no separate table to forget to update.
+ */
+export type DedupScope = 'conversation' | 'global';
+
 export interface ToolContext {
   conversationId: string;
   customer: CustomerProfile;
@@ -90,7 +110,20 @@ export interface ToolDescriptor<A = any> {
    * retry guarantee. Required whenever `sideEffecting` is true.
    */
   dedupKey?: (args: A, ctx: ToolContext) => string;
-  execute: (args: A, ctx: ToolContext) => Promise<unknown>;
+  /**
+   * How wide `dedupKey` dedups. Omitted means `'conversation'`, which is the
+   * safe default: a key that turns out to need conversation scoping and is left
+   * global cross-contaminates two customers, while one that needs global scope
+   * and is left conversational only duplicates work. Defaulting the cheaper
+   * mistake is deliberate.
+   */
+  dedupScope?: DedupScope;
+  /**
+   * `dedupKey` is the same server-derived key the store uses, handed through so
+   * a tool can pass it downstream as the provider's idempotency key. Optional
+   * because read-only tools have no key and need none.
+   */
+  execute: (args: A, ctx: ToolContext, dedupKey?: string) => Promise<unknown>;
 }
 
 export type ToolRegistry = ReadonlyMap<string, ToolDescriptor>;
@@ -106,6 +139,30 @@ export type SideEffectStatus =
   | 'failed'
   | 'rejected';
 
+/**
+ * The `dedup_scope_key` value for a globally-scoped effect.
+ *
+ * A sentinel in the same column as the conversation id, rather than a NULL:
+ * Postgres treats NULLs as DISTINCT in a UNIQUE index, so a nullable scope
+ * column enforces nothing for exactly the rows that need enforcing. It cannot
+ * collide with a real conversation id because conversation ids are `uuid()`
+ * defaults, and `global` is not a UUID.
+ */
+export const GLOBAL_DEDUP_SCOPE_KEY = 'global';
+
+/**
+ * The value a store must dedup against for one (tool, dedupKey) pair.
+ *
+ * Shared by BOTH SideEffectStore implementations on purpose. This function is
+ * the whole difference between "one page per outage" and "one page per ticket",
+ * and it is the kind of rule that drifts when each store computes it itself -
+ * which is what the shared contract test over this port exists to catch.
+ */
+export const dedupScopeKeyFor = (
+  scope: DedupScope | undefined,
+  conversationId: string,
+): string => (scope === 'global' ? GLOBAL_DEDUP_SCOPE_KEY : conversationId);
+
 export interface SideEffectRecord {
   id: string;
   toolName: string;
@@ -118,8 +175,9 @@ export interface SideEffectRecord {
 export interface SideEffectStore {
   /**
    * Record a request for a human-gated side effect. Idempotent on
-   * (conversation, tool, dedupKey): a second request returns the existing row
-   * instead of creating a duplicate approval for the same action.
+   * (dedup scope, tool, dedupKey) - see `dedupScopeKeyFor`: a second request
+   * returns the existing row instead of creating a duplicate approval for the
+   * same action.
    */
   requestApproval(input: {
     conversationId: string;

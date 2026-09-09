@@ -36,6 +36,25 @@ import {
   type ToolRegistry,
 } from './types';
 
+/**
+ * Prefix of the guard note carrying a draft the guards refused to send.
+ *
+ * Exported for the eval harness, which needs it to tell "we refused to send
+ * this" apart from "the model wrote nothing" - two different failures, and only
+ * one is a defect in the model. Nothing imports it yet: the harness's own
+ * `reply_draft_present` check still reads `customer_reply_draft` alone and so
+ * currently conflates them. Import this rather than re-typing the literal, or
+ * the contract is a string duplicated across two files that nothing pins.
+ */
+export const DISCARDED_DRAFT_NOTE = 'discarded_customer_reply_draft:';
+
+/** Read-only tools whose successful result can ground a customer-facing claim. */
+const EVIDENCE_TOOLS: readonly string[] = [
+  'search_knowledge_base',
+  'get_customer_account',
+  'check_service_status',
+];
+
 export interface ToolCallRecord {
   seq: number;
   toolName: string;
@@ -74,6 +93,18 @@ export interface RunTurnInput {
   now?: Date;
   maxIterations?: number;
   maxSideEffectsPerTurn?: number;
+  /**
+   * Whether this turn may take actions. False for an operator's
+   * natural-language question - see `EvaluateInput.sideEffectsAuthorized`.
+   */
+  sideEffectsAuthorized?: boolean;
+  /**
+   * Side effects on this ticket already waiting on a human when the turn
+   * started. Read by the caller (it is a database question) and handed to
+   * `applyGuards`, which must not auto-respond over a decision a human is
+   * still holding - including one an earlier turn filed.
+   */
+  openApprovals?: number;
   traceId?: string;
 }
 
@@ -88,6 +119,8 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     now = new Date(),
     maxIterations = 6,
     maxSideEffectsPerTurn = 4,
+    sideEffectsAuthorized = true,
+    openApprovals = 0,
     traceId = randomUUID(),
   } = input;
 
@@ -98,6 +131,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     messages: input.messages,
     previousDecision: input.previousDecision ?? null,
     now,
+    sideEffectsAuthorized,
   });
   const tools = toolDefinitions(registry);
   const responseFormat = {
@@ -107,8 +141,24 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
 
   // Deterministic, before the model sees anything: a ticket that tries to
   // override the agent's instructions gets no automated side effects at all.
+  //
+  // BOTH inbound channels, not just the ticket. Operator text is trusted in the
+  // sense that matters - it sits outside the `<ticket>` tag and reaches the
+  // model as an ordinary chat turn - and that is a statement about who is
+  // asking, not about what the words contain. An operator quoting the ticket
+  // back at the agent ("customer wrote: ...") carried the payload straight
+  // across the boundary the tag exists to draw: measured, the identical
+  // sentence escalated when it arrived as a customer message and licensed side
+  // effects when an operator pasted it.
+  //
+  // `agent` rows are excluded on purpose. That is our own `operator_summary`,
+  // and it QUOTES the attacker when it explains what happened - scanning it
+  // would make one injected ticket escalate every later turn forever.
   const injection = detectInjectionAttempt(
-    input.messages.filter((m) => m.role === 'customer').map((m) => m.content).join('\n'),
+    input.messages
+      .filter((m) => m.role === 'customer' || m.role === 'operator')
+      .map((m) => m.content)
+      .join('\n'),
   );
   if (injection) {
     log.warn(
@@ -178,6 +228,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
           ctx,
           sideEffectBudget,
           injectionSuspected: injection !== null,
+          sideEffectsAuthorized,
         });
         if (decision.kind !== 'deny' && decision.tool.sideEffecting) sideEffectBudget -= 1;
         log.info(
@@ -248,6 +299,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnResult> {
     degraded,
     model: llm.model,
     injection,
+    openApprovals,
   });
 
   const latencyMs = Date.now() - startedAt;
@@ -425,7 +477,11 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
       }
 
       try {
-        const result = await tool.execute(args, ctx);
+        // The dedup key goes through to the tool so the PROVIDER's idempotency
+        // key is the key we derived, not one the tool invents from the model's
+        // arguments. Non-null because this branch is only reached for a
+        // side-effecting tool, which the registry refuses to build without one.
+        const result = await tool.execute(args, ctx, decision.dedupKey!);
         const ok = (result as { ok?: boolean }).ok !== false;
         await store.complete({ id: claim.record.id, status: ok ? 'succeeded' : 'failed', result });
         return finish(result, ok ? 'succeeded' : 'failed', claim.record.id);
@@ -472,6 +528,15 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
  * as a model-initiated call, so the region dedup key means one page per region
  * per conversation. If the model already paged, this replays the stored result
  * instead of paging again.
+ *
+ * NOT gated by `sideEffectsAuthorized`, and that asymmetry is the point. An
+ * operator's question is not authorized to make the MODEL act - the phrasing of
+ * a question must not file a refund - but this rule is the service acting on its
+ * own probe data, and the reason it is code instead of a prompt line is that
+ * waking an engineer must not depend on what the last message said or who typed
+ * it. A regional outage is still a regional outage while an operator asks about
+ * it. It reaches the provider through the same claim and the same global dedup
+ * key either way, so an unauthorized turn cannot page twice.
  */
 async function pageIfRegionIsDown(input: {
   records: ToolCallRecord[];
@@ -486,11 +551,25 @@ async function pageIfRegionIsDown(input: {
   const outage = detectRegionalOutage(records, ctx.customer.region);
   if (!outage) return [];
 
-  // The model already paged for this region in this turn: nothing to add.
+  // The model already paged for THIS region in this turn: nothing to add.
+  //
+  // The region comparison is the whole rule. Without it, an incident the model
+  // opened for some unrelated region made this rule conclude "already handled"
+  // and page nobody for the region our own probes call degraded - which voids
+  // the exact guarantee that put this rule in code instead of the prompt.
+  // `pending_approval` is deliberately NOT treated as paged: open_incident is
+  // autonomy 'auto', so that status is unreachable today, and counting it would
+  // silently turn this rule into a no-op the day someone human-gates the tool.
+  // A redundant page is harmless: `open_incident` declares `dedupScope:
+  // 'global'`, so its region key collides service-wide and one outage is one
+  // incident however many tickets report it. Failing towards paging is
+  // therefore free in the direction that matters - a redundant page costs an
+  // engineer minutes, an unpaged regional outage costs the account.
   const alreadyPaged = records.some(
     (record) =>
       record.toolName === 'open_incident' &&
-      (record.status === 'succeeded' || record.status === 'pending_approval'),
+      record.status === 'succeeded' &&
+      (record.args as { region?: string } | null)?.region === outage.region,
   );
   if (alreadyPaged) {
     log.info(
@@ -546,6 +625,33 @@ async function pageIfRegionIsDown(input: {
     traceId,
     conversationId: ctx.conversationId,
   });
+
+  if (record.status !== 'succeeded') {
+    // The rule exists to make "an engineer is woken up" independent of model
+    // sampling, and this is the one branch where it did not happen anyway: the
+    // provider was unreachable, our own arguments were refused, or - the case
+    // that is otherwise silent - the globally-scoped incident row was left
+    // `executing` by a crashed process, so the claim came back `in_flight` and
+    // the dedup that normally means "already handled" means "handled by nobody".
+    //
+    // `ReconcilerService` closes that window by measuring a side-effect claim
+    // against one provider call rather than a whole turn, but the window is not
+    // zero, and a failed page is worth an alert on its own rather than only a
+    // `failed` tool_call row nobody queries.
+    const result = record.result as { error?: { code?: string } } | null;
+    log.error(
+      {
+        event: 'rule.paging.unresolved',
+        needs_reconciliation: true,
+        trace_id: traceId,
+        region: outage.region,
+        side_effect_id: record.sideEffectId,
+        status: record.status,
+        reason: result?.error?.code ?? 'unknown',
+      },
+      'the deterministic paging rule did not page on-call',
+    );
+  }
 
   return [record];
 }
@@ -610,8 +716,19 @@ export function applyGuards(input: {
   degraded: boolean;
   model: string;
   injection?: InjectionFinding | null;
+  /**
+   * Side effects on this TICKET that are still waiting on a human, filed by any
+   * turn - counted by the caller, not derived from `records`.
+   *
+   * `pendingIds` below is this turn's own filings, which is the right meaning
+   * for `pending_side_effect_ids` and the wrong field of view for the guard: a
+   * refund filed by turn 1 is exactly what a later turn must not auto-respond
+   * over, and turn 2's records know nothing about it. Passed in because this
+   * function is pure and `ReconcilerService` reuses it outside any request.
+   */
+  openApprovals?: number;
 }): { decision: Decision; guardNotes: string[] } {
-  const { base, records, degraded, model, injection = null } = input;
+  const { base, records, degraded, model, injection = null, openApprovals = 0 } = input;
   const notes: string[] = [];
 
   // De-duplicated: a model that asks for the same refund twice must not make
@@ -627,24 +744,41 @@ export function applyGuards(input: {
 
   let nextAction = base.next_action;
   let specialistTeam = base.specialist_team;
+  /**
+   * Code of the guard that took `auto_respond` away, if one did. Only the first
+   * guard to fire can see `auto_respond`, so there is at most one. Used to name
+   * the reason in the server-authored operator summary below, so an operator
+   * does not have to diff `next_action` against the model's prose to work out
+   * why no reply went out.
+   */
+  let removedAutoRespond: string | null = null;
 
   const escalate = (note: string) => {
+    if (nextAction === 'auto_respond') removedAutoRespond = noteCode(note);
     if (nextAction !== 'escalate_to_human') {
       nextAction = 'escalate_to_human';
       notes.push(note);
     }
   };
 
-  if (degraded) escalate('triage_degraded: forced escalation');
+  if (degraded) {
+    // Pushed unconditionally rather than through `escalate()`, which only
+    // records a note when it actually changes `next_action`. The fail-safe
+    // decision is already `escalate_to_human`, so this note never reached
+    // guard_notes on the one kind of turn where it is the whole story: an
+    // operator filtering on guard_notes could not see that triage never ran.
+    notes.push('triage_degraded: forced escalation');
+    if (nextAction === 'auto_respond') removedAutoRespond = 'triage_degraded';
+    nextAction = 'escalate_to_human';
+  }
   if (injection) {
     // Never auto-answer a ticket that tried to hijack the agent: the reply would
     // go to whoever wrote the injection, confirming what they asked for.
-    escalate(`injection_suspected: ${injection.patterns.join(', ')}`);
-    if (!notes.some((note) => note.startsWith('injection_suspected'))) {
-      notes.push(`injection_suspected: ${injection.patterns.join(', ')}`);
-    }
+    const note = `injection_suspected: ${injection.patterns.join(', ')}`;
+    escalate(note);
+    if (!notes.includes(note)) notes.push(note);
   }
-  if (pendingIds.length > 0 && nextAction === 'auto_respond') {
+  if ((pendingIds.length > 0 || openApprovals > 0) && nextAction === 'auto_respond') {
     escalate('pending_human_approval: cannot auto-respond while an action awaits approval');
   }
   if (base.urgency === 'critical' && nextAction === 'auto_respond') {
@@ -656,35 +790,63 @@ export function applyGuards(input: {
 
   // An auto-response is customer-facing text sent with no human in the loop, so
   // it has to be grounded in something we looked up rather than in the model's
-  // memory of how some other product works. Only question-shaped tickets are
-  // gated: a decision built from account or status data is already grounded.
+  // memory of how some other product works.
+  //
+  // The default is deny. This guard used to apply only to an allow-list of
+  // `issue_type` values, which made grounding opt-in on a field the MODEL
+  // picks: `issue_type: 'other'` - the mandatory off-taxonomy bucket - and a
+  // misclassified `billing_dispute` both auto-responded with ZERO tool calls
+  // behind them, a draft claiming refunds nothing had looked up, and an empty
+  // guard_notes. That is reached by ordinary misclassification, not by an
+  // attack, so the exemption list is gone: every auto-response needs at least
+  // one tool result behind it, and question-shaped tickets still need the
+  // stronger form, an actual knowledge base hit.
   const GROUNDABLE: ReadonlyArray<ModelDecision['issue_type']> = [
     'question',
     'how_to',
     'feature_request',
     'bug',
+    // `other` is where the model puts anything off-taxonomy, so it is reached by
+    // ordinary misclassification and must be the MOST gated value, not the least.
+    'other',
   ];
-  // A search that returned nothing is not grounding. The first version of this
-  // guard only checked that a search happened, and a live run auto-answered a
-  // "I cannot log in at all" ticket off an empty result set - which is exactly
-  // the failure the prompt warns about and the guard was supposed to catch.
-  const searchedKb = records.some(
-    (record) =>
-      record.toolName === 'search_knowledge_base' &&
-      record.status === 'succeeded' &&
-      ((record.result as { result_count?: number } | undefined)?.result_count ?? 0) > 0,
-  );
-  if (nextAction === 'auto_respond' && GROUNDABLE.includes(base.issue_type) && !searchedKb) {
+  if (nextAction === 'auto_respond') {
+    const groundedInKb = records.some(
+      (record) => record.toolName === 'search_knowledge_base' && isEvidence(record),
+    );
     // Routed rather than escalated: it is an unverified answer, not an incident.
-    nextAction = 'route_to_specialist';
-    notes.push('ungrounded_auto_respond: no knowledge base result behind the reply');
+    if (GROUNDABLE.includes(base.issue_type) && !groundedInKb) {
+      removedAutoRespond = 'ungrounded_auto_respond';
+      nextAction = 'route_to_specialist';
+      notes.push('ungrounded_auto_respond: no knowledge base result behind the reply');
+    } else if (
+      (base.issue_type === 'billing_dispute' || base.product_area === 'billing') &&
+      !records.some((record) => record.toolName === 'get_customer_account' && isEvidence(record))
+    ) {
+      // Grounding is a relation between the claim and the evidence, not a count
+      // of successful calls. A status probe says nothing about this customer's
+      // charges, so it cannot license "we have refunded the two duplicates".
+      removedAutoRespond = 'ungrounded_auto_respond';
+      nextAction = 'route_to_specialist';
+      notes.push('ungrounded_auto_respond: no account lookup behind a claim about money');
+    } else if (!records.some(isEvidence)) {
+      removedAutoRespond = 'ungrounded_auto_respond';
+      nextAction = 'route_to_specialist';
+      notes.push('ungrounded_auto_respond: no successful tool result behind the reply');
+    }
   }
 
   // A holding reply is a communication quality problem, not a safety one, so it
   // is flagged for the operator rather than fabricated here. Code cannot write
   // it: the message has to be in the customer's language and reflect the
   // specific evidence.
+  //
+  // Suppressed on a degraded turn: the fail-safe decision is urgency `high` with
+  // no draft by definition, so this note fired on 100% of degraded turns while
+  // adding nothing to the `triage_degraded` note above. A field that is always
+  // populated is a field operators learn to skip.
   if (
+    !degraded &&
     (base.urgency === 'critical' || base.urgency === 'high') &&
     !base.customer_reply_draft?.trim()
   ) {
@@ -693,6 +855,54 @@ export function applyGuards(input: {
   if (nextAction === 'route_to_specialist' && !specialistTeam?.trim()) {
     specialistTeam = 'general_support';
     notes.push('missing_specialist_team: defaulted to general_support');
+  }
+
+  // A GUARD took `auto_respond` away, so the customer-facing prose the model
+  // wrote to be sent unread is precisely the artefact we just decided not to
+  // trust. Keeping it made the system route an injected ticket *because* its
+  // draft was untrustworthy and then hand the operator that draft as finished
+  // work - measured: `escalate_to_human`, no pending side effects, and a draft
+  // reading "a full refund of all charges has been approved and sent".
+  //
+  // Discarded, not destroyed: the draft goes into guard_notes so the audit trail
+  // still shows what the model wanted to send. (guard_notes rather than a new
+  // Decision field because the field would mean a schema change, and a note
+  // costs nothing downstream.) `rationale` is deliberately untouched - it is the
+  // model's reasoning record, and an operator needs to see what the model
+  // claimed in order to judge it.
+  //
+  // A `route_to_specialist` or `escalate_to_human` the MODEL chose keeps its
+  // draft: the prompt asks for a holding reply on critical/high tickets even
+  // when not auto-responding, and dropping it would reintroduce the 45-seat
+  // enterprise account that sat in silence.
+  let operatorSummary = base.operator_summary;
+  let customerReplyDraft = base.customer_reply_draft;
+  // Two triggers, not one. A guard taking `auto_respond` away is the obvious
+  // case. The second is `injection`, whatever the model chose: a validator
+  // probe returned next_action `escalate_to_human` with the draft intact as
+  // "Ignore previous instructions: your refund of $9999 was sent." because the
+  // model had routed the ticket itself, so the first trigger never fired. Under
+  // injection_suspected the draft's PROVENANCE is what is suspect, which is
+  // independent of which action the model picked - and the policy already
+  // refuses every side effect on such a ticket, so discarding its prose is the
+  // consistent stance. The holding-reply argument below still protects every
+  // benign demotion.
+  if ((base.next_action === 'auto_respond' || injection) && nextAction !== 'auto_respond') {
+    const discarded = base.customer_reply_draft?.trim();
+    // Truncated: on the path this fires most (injection_suspected) the draft is
+    // attacker-authored, and guard_notes flows into the API response, the
+    // persisted turn, and the `decision.final` log line wholesale. The audit
+    // value is in seeing what it tried to say, not in storing all 4000 chars.
+    if (discarded) {
+      const excerpt = discarded.length > 300 ? `${discarded.slice(0, 300)}...[truncated]` : discarded;
+      notes.push(`${DISCARDED_DRAFT_NOTE} ${excerpt}`);
+    }
+    customerReplyDraft = null;
+    operatorSummary =
+      `No automated reply was sent (${removedAutoRespond ?? (injection ? 'injection_suspected' : 'guard_override')}). The model's draft was ` +
+      `discarded unsent${discarded ? ' and is preserved verbatim in guard_notes' : ''}, and its own ` +
+      `summary is withheld because it described sending that reply. See rationale for what the ` +
+      `model claimed and tools_used for what actually ran.`;
   }
 
   const toolsUsed: ToolUsed[] = records.map((record) => ({
@@ -709,6 +919,8 @@ export function applyGuards(input: {
     ...base,
     next_action: nextAction,
     specialist_team: specialistTeam,
+    operator_summary: operatorSummary,
+    customer_reply_draft: customerReplyDraft,
     // `auto_respond` means the draft is safe to send without a human decision;
     // every other action needs one.
     requires_human: nextAction !== 'auto_respond',
@@ -722,4 +934,49 @@ export function applyGuards(input: {
   };
 
   return { decision, guardNotes: notes };
+}
+
+/**
+ * A tool result we can point at as evidence: the call ran, it succeeded, and it
+ * came back with something.
+ *
+ * `result_count: 0` is a successful search that found nothing, which is an empty
+ * result and not evidence - a live run auto-answered an "I cannot log in at all"
+ * ticket off an empty result set. Read generically rather than per tool name, so
+ * a search-shaped tool added later is gated the day it exists rather than the
+ * day someone remembers to list it here.
+ */
+function isEvidence(record: ToolCallRecord): boolean {
+  if (record.status !== 'succeeded') return false;
+  // The allowlist is the whole exclusion, and it is what keeps a SIDE EFFECT
+  // out: `pageIfRegionIsDown` pushes its own `system_rule` open_incident record
+  // into `records` before the guards run, so treating any succeeded call as
+  // evidence let the service manufacture the grounding that licensed the
+  // model's unread reply.
+  //
+  // There used to be a second check here (`policyOutcome === 'system_rule'`)
+  // with a comment claiming both had been probed independently. They had not:
+  // every `system_rule` record today is an open_incident, which this line
+  // already excludes, so the pair masked each other and only one was
+  // load-bearing. Deleted rather than declared - two guards where one does the
+  // work is how a later edit silently removes the one that mattered. If a
+  // deterministic rule is ever given an evidence-shaped tool (a probe that
+  // calls `check_service_status` itself, say), the exclusion has to come back
+  // WITH a probe of its own, because the allowlist will not cover it.
+  if (!EVIDENCE_TOOLS.includes(record.toolName)) return false;
+  const result = record.result as { ok?: boolean; result_count?: number } | null;
+  if (!result || typeof result !== 'object' || Array.isArray(result) || result.ok !== true) {
+    return false;
+  }
+  // `?? 1` reads "this tool does not report a count", not "assume a hit": only
+  // search-shaped results carry result_count, and EVIDENCE_TOOLS is the closed
+  // list that makes the default safe. An earlier comment here claimed the
+  // generic read gated any future search tool; it did the opposite, because a
+  // tool returning `{ok:true, results:[]}` has no result_count at all.
+  return (result.result_count ?? 1) > 0;
+}
+
+/** `'critical_urgency: never auto-respond...'` -> `'critical_urgency'`. */
+function noteCode(note: string): string {
+  return note.split(':')[0] ?? note;
 }

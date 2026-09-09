@@ -338,7 +338,14 @@ function refundRecord(status: ToolCallRecord['status'], chargeId = 'ch_3f22b'): 
   return {
     seq: 1,
     toolName: 'issue_refund',
-    args: { charge_id: chargeId, amount_cents: 2999, currency: 'USD', reason: 'duplicate charge' },
+    args: {
+      charge_id: chargeId,
+      amount_cents: 2999,
+      currency: 'USD',
+      // Long enough to pass the tool's own `reason` floor: a fixture the real
+      // schema would reject is a fixture that stops standing for a real call.
+      reason: 'Duplicate of ch_3f21a; the same amount was charged twice within the hour.',
+    },
     result: { ok: true, status: 'pending_approval', side_effect_id: `se_${chargeId}` },
     policyOutcome: 'requires_approval',
     status,

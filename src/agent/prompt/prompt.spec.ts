@@ -69,9 +69,6 @@ describe('systemPrompt', () => {
     expect(prompt).toContain('Escalating is not free.'); // counter-pressure against over-escalation
   });
 
-  it('is cached: two calls return the identical string reference', () => {
-    expect(systemPrompt()).toBe(systemPrompt());
-  });
 });
 
 describe('buildMessages - structure', () => {

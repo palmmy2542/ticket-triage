@@ -16,6 +16,30 @@ describe('parseEnv', () => {
     expect(result.FAKE_LLM).toBe(true);
     expect(result.MAX_AGENT_ITERATIONS).toBe(6);
     expect(result.MAX_SIDE_EFFECTS_PER_TURN).toBe(4);
+    expect(result.RECONCILE_INTERVAL_MS).toBe(60_000);
+    expect(result.RECONCILE_STALE_MULTIPLIER).toBe(2);
+    expect(result.RECONCILE_BATCH_SIZE).toBe(100);
+    expect(result.IDEMPOTENCY_RETENTION_MS).toBe(86_400_000);
+  });
+
+  it('accepts RECONCILE_INTERVAL_MS=0 as "run the pass only when called"', () => {
+    expect(parseEnv({ ...validBase, RECONCILE_INTERVAL_MS: '0' }).RECONCILE_INTERVAL_MS).toBe(0);
+  });
+
+  it('refuses a stale multiplier below 1', () => {
+    // Below 1 the threshold is shorter than a legitimate turn BY CONSTRUCTION,
+    // so the reconciler would fail-safe running turns and re-drive refunds that
+    // are still in flight. Rejected at boot rather than discovered in
+    // production.
+    expect(() => parseEnv({ ...validBase, RECONCILE_STALE_MULTIPLIER: '0.5' })).toThrow(
+      /RECONCILE_STALE_MULTIPLIER/,
+    );
+  });
+
+  it('refuses a batch size below 1, which would make the sweep a no-op', () => {
+    expect(() => parseEnv({ ...validBase, RECONCILE_BATCH_SIZE: '0' })).toThrow(
+      /RECONCILE_BATCH_SIZE/,
+    );
   });
 
   it('fails when DATABASE_URL is missing', () => {

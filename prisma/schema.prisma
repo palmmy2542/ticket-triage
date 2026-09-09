@@ -28,6 +28,19 @@ model Message {
   seq            Int
   role           String
   content        String
+  /**
+   * Who this row was written for: `customer` for the conversation the customer
+   * is party to, `internal` for an operator exchange or an agent note.
+   * Not derivable from `role`, which is why it is stored. `content` for an
+   * `agent` row is `decision.operator_summary` - a note to whoever is handling
+   * the ticket - while the customer-facing text of the same turn is
+   * `customer_reply_draft`, which lives on the decision and is never written
+   * here. So today every `agent` row is internal; the day a reply is actually
+   * sent, the sent copy is an `agent` row that is NOT.
+   * Defaults to `internal` because that is the safe direction: a row nobody
+   * labelled must not claim the customer has seen it.
+   */
+  visibility     String   @default("internal")
   meta           Json?
   createdAt      DateTime @default(now()) @map("created_at")
 
@@ -80,20 +93,41 @@ model ToolCall {
 }
 
 model SideEffect {
-  id                String   @id @default(uuid())
-  conversationId    String   @map("conversation_id")
+  id             String @id @default(uuid())
+  /// The ticket that filed this effect. Stays NOT NULL with its foreign key
+  /// even for a globally-scoped effect, so `getConversation`'s relation still
+  /// resolves and the audit trail keeps "which ticket got us paged".
+  conversationId String @map("conversation_id")
+  /// What `dedup_key` collides against: the conversation id for a
+  /// conversation-scoped tool, the literal `global` for a global one. A
+  /// separate column rather than a nullable `conversation_id`, because
+  /// Postgres treats NULLs as DISTINCT in a UNIQUE index - nullable scoping
+  /// would silently enforce nothing at all for exactly the rows that need it.
+  /// See `dedupScopeKeyFor` in src/agent/types.ts.
+  dedupScopeKey  String @map("dedup_scope_key")
+
   toolName          String   @map("tool_name")
   dedupKey          String   @map("dedup_key")
   status            String
   args              Json
   result            Json?
+  /// Denormalised decision context for the human who has to authorise this.
+  /// `args` alone is a charge id and an amount, which is not enough to
+  /// authorise a payment. Nullable because rows filed before this column
+  /// existed have none, and because an unreadable customer profile must not
+  /// stop an approval from being filed.
+  decisionContext   Json?    @map("decision_context")
   requestedByTurnId String?  @map("requested_by_turn_id")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id])
 
-  @@unique([conversationId, toolName, dedupKey])
+  @@unique([dedupScopeKey, toolName, dedupKey])
+  /// The old unique index led on `conversation_id` and so doubled as the index
+  /// for every read that filters by it (`getConversation`, `listForConversation`).
+  /// Moving uniqueness onto the scope key takes that away, hence this.
+  @@index([conversationId])
   @@map("side_effects")
 }
 
@@ -107,5 +141,10 @@ model IdempotencyKey {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  /// Retention scans (status, updated_at) to purge terminal rows. Expressible
+  /// here because it is not partial; the reconciler's three lease indexes ARE
+  /// partial and so live only in the migration SQL - Prisma cannot express a
+  /// WHERE clause on an index.
+  @@index([status, updatedAt])
   @@map("idempotency_keys")
 }

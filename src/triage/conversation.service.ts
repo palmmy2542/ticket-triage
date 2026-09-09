@@ -69,6 +69,7 @@ export class ConversationService {
             seq: index + 1,
             role: 'customer',
             content: message.text,
+            visibility: 'customer',
             meta: { at: message.at } as Prisma.InputJsonValue,
           })),
         },
@@ -106,6 +107,9 @@ export class ConversationService {
           seq: (last?.seq ?? 0) + 1,
           role: body.role,
           content: body.content,
+          // Derived, never taken from the request: a client must not be able to
+          // record an internal exchange as something the customer has seen.
+          visibility: body.role === 'customer' ? 'customer' : 'internal',
           meta: { at: body.at ?? new Date().toISOString() } as Prisma.InputJsonValue,
         },
       });
@@ -117,7 +121,11 @@ export class ConversationService {
       role: body.role,
     });
 
-    return this.runTurnFor(conversationId);
+    // A customer message is work to triage; an operator message is a question,
+    // unless the operator authorized this turn to act.
+    return this.runTurnFor(conversationId, {
+      sideEffectsAuthorized: body.role === 'customer' || body.authorize_actions,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -155,6 +163,7 @@ export class ConversationService {
         seq: message.seq,
         role: message.role,
         content: message.content,
+        visibility: message.visibility,
         at: readAt(message.meta, message.createdAt),
       })),
       turns: conversation.turns.map((turn) => ({
@@ -204,8 +213,12 @@ export class ConversationService {
   // Internals
   // -------------------------------------------------------------------------
 
-  private async runTurnFor(conversationId: string): Promise<TurnResponse> {
-    const { customer, messages, previousDecision } = await this.loadTurnInput(conversationId);
+  private async runTurnFor(
+    conversationId: string,
+    options: { sideEffectsAuthorized?: boolean } = {},
+  ): Promise<TurnResponse> {
+    const { customer, messages, previousDecision, openApprovals } =
+      await this.loadTurnInput(conversationId);
     const traceId = randomUUID();
 
     // Opened before the model is called so a crashed turn is visible as
@@ -232,9 +245,37 @@ export class ConversationService {
       traceId,
       maxIterations: env.MAX_AGENT_ITERATIONS,
       maxSideEffectsPerTurn: env.MAX_SIDE_EFFECTS_PER_TURN,
+      sideEffectsAuthorized: options.sideEffectsAuthorized ?? true,
+      openApprovals,
     });
 
+    // One transaction, and deliberately NOT retried. A bounded retry for lock
+    // conflicts lived here and was deleted: with the lock order below fixed,
+    // the deadlock it existed for stopped happening, and both of its mutations
+    // survived - nothing could tell whether the retry ran. What covers the
+    // residual is `ReconcilerService.sweepTurns`, which is durable across a
+    // process death as an in-request retry never is.
     await this.prisma.$transaction(async (tx) => {
+      // FIRST, before anything else in this transaction.
+      //
+      // `tool_calls`, `messages` and `agent_turns` all carry an FK to
+      // `conversations(id)`, so every row inserted or updated below takes a
+      // `FOR KEY SHARE` lock on this same parent row. Taking the weak locks
+      // first and then asking to UPGRADE to `FOR UPDATE` - which is what the
+      // old statement order did - deadlocks two concurrent turns on the same
+      // conversation: each holds KEY SHARE, each waits for the other to drop it.
+      // Reproduced against this project's Postgres:
+      // `ERROR: deadlock detected ... while locking tuple (0,1)`.
+      //
+      // The loser's whole transaction aborted, which meant the turn stayed
+      // `running`, its tool_calls were never persisted and no agent reply was
+      // written - while its side effects, committed outside this transaction,
+      // had already paged on-call. `addMessage` above always took these two
+      // locks in this order; the inversion here was an accident, not a design.
+      //
+      // `id` is a Prisma String (TEXT in Postgres), so no ::uuid cast here.
+      await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${conversationId} FOR UPDATE`;
+
       await tx.agentTurn.update({
         where: { id: turn.id },
         data: {
@@ -263,8 +304,8 @@ export class ConversationService {
         });
       }
 
-      // `id` is a Prisma String (TEXT in Postgres), so no ::uuid cast here.
-      await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${conversationId} FOR UPDATE`;
+      // Read AFTER the lock, so a concurrent turn cannot hand us the same `seq`
+      // (`messages` is UNIQUE on (conversation_id, seq)).
       const last = await tx.message.findFirst({
         where: { conversationId },
         orderBy: { seq: 'desc' },
@@ -276,6 +317,10 @@ export class ConversationService {
           seq: (last?.seq ?? 0) + 1,
           role: 'agent',
           content: result.agentReply,
+          // `agentReply` is `decision.operator_summary` - a note to whoever is
+          // handling the ticket. The customer-facing text of this same turn is
+          // `decision.customer_reply_draft`, which nothing here sends.
+          visibility: 'internal',
           meta: { turn_id: turn.id, at: new Date().toISOString() } as Prisma.InputJsonValue,
         },
       });
@@ -287,6 +332,37 @@ export class ConversationService {
       });
     });
 
+    // Stamp this turn's rationale onto the approval rows it filed. Deliberately
+    // AFTER the transaction and on its own connection: it is repair of an
+    // audit field, not part of the turn's atomic write, and rolling the turn
+    // back over a failed stamp would trade a decision for a comment.
+    //
+    // It cannot happen at request time. The agent_turns row is opened `running`
+    // with a NULL decision before the model is called, and the tool loop files
+    // its approval rows while that is still true - so at the moment a refund is
+    // filed there is no rationale in existence to copy. An operator asked to
+    // authorise money needs to know WHY the agent asked, which is exactly what
+    // this carries.
+    // Guarded, because it is a write on its own connection AFTER the turn has
+    // committed: a pool blip here used to answer 500 for a turn whose decision,
+    // reply and side-effect rows had all landed - and a 500 out of an
+    // `@Idempotent` route also burns the key, so the client's retry is refused
+    // as well. The failure is an audit field the operator can be told about,
+    // not a decision to throw away.
+    if (result.decision.rationale) {
+      try {
+        await this.sideEffects.stampTurnRationale(turn.id, result.decision.rationale);
+      } catch (error) {
+        this.logger.error({
+          event: 'side_effect.rationale_not_stamped',
+          needs_reconciliation: true,
+          turn_id: turn.id,
+          conversation_id: conversationId,
+          error: (error as Error).message,
+        });
+      }
+    }
+
     return {
       conversation_id: conversationId,
       turn_id: turn.id,
@@ -296,6 +372,7 @@ export class ConversationService {
       degraded: result.decision.degraded,
     };
   }
+
 
   private async loadConversationOrThrow(
     conversationId: string,
@@ -321,10 +398,11 @@ export class ConversationService {
     customer: CustomerProfile;
     messages: ConversationMessage[];
     previousDecision: Decision | null;
+    openApprovals: number;
   }> {
     const { customer } = await this.loadConversationOrThrow(conversationId);
 
-    const [rows, lastTurn] = await Promise.all([
+    const [rows, lastTurn, openApprovals] = await Promise.all([
       this.prisma.message.findMany({
         where: { conversationId },
         orderBy: { seq: 'asc' },
@@ -333,6 +411,12 @@ export class ConversationService {
         where: { conversationId, status: { in: ['ok', 'failed'] } },
         orderBy: { createdAt: 'desc' },
         select: { decision: true },
+      }),
+      // Ticket-wide, not turn-wide: a refund THIS turn did not file is still a
+      // decision a human is holding, and the guard that refuses to auto-respond
+      // over one cannot see it from the turn's own tool records.
+      this.prisma.sideEffect.count({
+        where: { conversationId, status: 'pending_approval' },
       }),
     ]);
 
@@ -348,9 +432,12 @@ export class ConversationService {
         at: readAt(row.meta, row.createdAt),
       })),
       previousDecision: previous?.success ? previous.data : null,
+      openApprovals,
     };
   }
 }
+
+
 
 function readAt(meta: Prisma.JsonValue | null, fallback: Date): string {
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {

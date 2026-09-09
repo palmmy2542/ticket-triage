@@ -24,7 +24,15 @@ function stripComments(markdown: string): string {
 let cached: string | undefined;
 
 export function systemPrompt(): string {
-  // ponytail: read once, cache. The file is immutable at runtime.
+  // Read once, cache. The file is immutable at runtime.
+  //
+  // Deliberately untested: this is a performance detail with no observable
+  // behaviour, and `fs.readFileSync` is non-configurable in current Node so a
+  // spy cannot see it without mocking the whole module. There used to be a test
+  // here asserting `systemPrompt()).toBe(systemPrompt())`, which passes on two
+  // equal string PRIMITIVES whether or not anything is cached - it stayed green
+  // with this line deleted. A test that cannot fail is worse than no test,
+  // because it reads as coverage.
   cached ??= stripComments(readFileSync(join(__dirname, PROMPT_FILE), 'utf8'));
   return cached;
 }
@@ -47,6 +55,8 @@ export interface BuildMessagesInput {
   /** Triage result of the previous turn, if any. Summarised, not replayed. */
   previousDecision?: Decision | null;
   now: Date;
+  /** False for an operator question: the turn may read, but not act. */
+  sideEffectsAuthorized?: boolean;
 }
 
 /**
@@ -108,6 +118,19 @@ export function buildMessages(input: BuildMessagesInput): LlmMessage[] {
     '',
     'Triage this ticket now. If an operator has asked you something below, answer it and re-triage.',
   );
+
+  // Per-turn context, deliberately here and not in the system prompt: it
+  // describes THIS request, so it must not move PROMPT_VERSION or invalidate an
+  // eval baseline. The policy refuses the call either way - this only spares the
+  // model a round trip discovering that.
+  if (input.sideEffectsAuthorized === false) {
+    parts.push(
+      '',
+      'This turn answers an operator question and is NOT authorized to take actions. Do not call ' +
+        'issue_refund or open_incident: say which action you believe is needed and why, and the ' +
+        'operator will authorize it explicitly.',
+    );
+  }
 
   const built: LlmMessage[] = [
     { role: 'system', content: systemPrompt() },
