@@ -12,7 +12,7 @@ import { applyGuards, failSafeDecision, runTurn, type ToolCallRecord } from './r
 import type { ModelDecision } from './schema';
 import { createToolRegistry } from './tools/registry';
 import { InMemorySideEffectStore, RecordingLogger } from './testing/in-memory-side-effect-store';
-import type { ConversationMessage, CustomerProfile } from './types';
+import type { ConversationMessage, CustomerProfile, SideEffectStore } from './types';
 
 const NOW = new Date('2026-09-07T12:00:00.000Z');
 
@@ -278,6 +278,54 @@ describe('runTurn - money never moves without a human', () => {
 
     expect(result.decision.injection_suspected).toBe(false);
     expect(h.store.withStatus('pending_approval')).toHaveLength(1);
+  });
+
+  it('reports an approved-then-failed refund as failed, not as still awaiting a human', async () => {
+    // The row a human already approved and the provider refused. The runner
+    // used to fall through to the `pending_approval` branch here and tell the
+    // model "filed for approval, nothing has been executed" - and put the id in
+    // `pending_side_effect_ids`, claiming a human owed a decision they had
+    // already made. `openApprovals` counts `pending_approval` rows in the
+    // database, so it never agreed with that.
+    const failedRow = {
+      id: 'se_failed_1',
+      toolName: 'issue_refund',
+      dedupKey: 'cust_1001:ch_3f22b',
+      status: 'failed' as const,
+      args: refundArgs('ch_3f22b'),
+      result: { ok: false, error: { code: 'charge_already_refunded' } },
+    };
+    const store: SideEffectStore = {
+      requestApproval: async () => failedRow,
+      beginAutonomous: async () => ({ outcome: 'in_flight', record: failedRow }),
+      complete: async () => failedRow,
+    };
+
+    const result = await runTurn({
+      conversationId: 'conv_failed_refund',
+      customer: FREE_CUSTOMER,
+      messages: customerMessages(['My refund never arrived. Can you check?']),
+      now: NOW,
+      llm: new FakeLlm([
+        { kind: 'tools', calls: [{ name: 'issue_refund', args: refundArgs('ch_3f22b') }] },
+        { kind: 'decision', decision: decisionFixture({ next_action: 'escalate_to_human' }) },
+      ]),
+      registry: createToolRegistry({ latencyMs: 0 }),
+      store,
+      log: new RecordingLogger(),
+    });
+
+    const record = result.toolCalls.find((call) => call.toolName === 'issue_refund');
+    expect(record?.status).toBe('failed');
+    expect(record?.sideEffectId).toBe('se_failed_1');
+    expect(result.decision.pending_side_effect_ids).toEqual([]);
+    expect(result.decision.tools_used).toContainEqual(
+      expect.objectContaining({
+        name: 'issue_refund',
+        status: 'failed',
+        error: 'previous_attempt_failed',
+      }),
+    );
   });
 });
 

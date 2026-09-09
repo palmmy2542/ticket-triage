@@ -270,31 +270,23 @@ export class SideEffectsService {
   /**
    * Close a claim we may no longer hold, and never overwrite a recorded answer.
    *
-   * `executing` is a LEASE, and more than one process can believe it holds one
-   * for the same row: `approve` executes a human-approved effect while
-   * `ReconcilerService.redriveSideEffect` re-drives the same row once its lease
-   * looks stale. Both then have an outcome to write, and an unconditional
-   * `update` means the LAST one wins.
+   * `executing` is a LEASE, and two processes can believe they hold it for the
+   * same row: `approve` executes a human-approved effect while
+   * `ReconcilerService.redriveSideEffect` re-drives it once the lease looks
+   * stale. Both then have an outcome to write, and an unconditional `update`
+   * means the last one wins - which matters because the stored `result` is the
+   * only copy of the provider's `refund_id`, so a late `failed` write records
+   * "did not happen" about something that did.
    *
-   * That is the worst write in the service. By the time either finishes, money
-   * may have moved and the stored `result` is the only copy of the provider's
-   * `refund_id` - so a late `failed` write does not just lose a race, it records
-   * "did not happen" about something that did, and the id needed to reverse it
-   * is gone.
+   * The predicate is `status = 'executing'` and nothing else: both writers only
+   * ever race towards a terminal status, and a terminal row already rejects
+   * both, so a lease token would add no observable protection.
    *
-   * The predicate is `status = 'executing'` and deliberately NOTHING ELSE. A
-   * lease token (`updated_at` as the sweeper's claim uses) would add no
-   * observable protection here and would be a second, redundant mechanism: both
-   * writers only ever race TOWARDS a terminal status, and a terminal row
-   * already rejects both. Kept honest rather than defensive-looking, because two
-   * guards where one is load-bearing is how a future edit silently removes the
-   * one that mattered.
-   *
-   * Safe to lose, which is what makes this simple: both writers called the
-   * provider with the same server-derived dedup key, so the answer already
-   * recorded IS this call's answer - the same `refund_id`, by construction (see
-   * `stableId`). The discarded copy is logged in full anyway, because a
-   * DIFFERENT answer would be evidence that the invariant broke.
+   * Losing the race is safe, which is what makes this simple: both writers
+   * called the provider with the same server-derived dedup key, so the recorded
+   * answer IS this call's answer by construction (see `stableId`). The
+   * discarded copy is logged anyway, because a DIFFERENT answer would be
+   * evidence that the invariant broke.
    */
   private async settleClaim(input: {
     id: string;

@@ -259,19 +259,13 @@ export class ConversationService {
       // FIRST, before anything else in this transaction.
       //
       // `tool_calls`, `messages` and `agent_turns` all carry an FK to
-      // `conversations(id)`, so every row inserted or updated below takes a
-      // `FOR KEY SHARE` lock on this same parent row. Taking the weak locks
-      // first and then asking to UPGRADE to `FOR UPDATE` - which is what the
-      // old statement order did - deadlocks two concurrent turns on the same
-      // conversation: each holds KEY SHARE, each waits for the other to drop it.
-      // Reproduced against this project's Postgres:
-      // `ERROR: deadlock detected ... while locking tuple (0,1)`.
-      //
-      // The loser's whole transaction aborted, which meant the turn stayed
-      // `running`, its tool_calls were never persisted and no agent reply was
-      // written - while its side effects, committed outside this transaction,
-      // had already paged on-call. `addMessage` above always took these two
-      // locks in this order; the inversion here was an accident, not a design.
+      // `conversations(id)`, so every row written below takes a `FOR KEY SHARE`
+      // lock on this same parent row. Taking the weak locks first and then
+      // upgrading to `FOR UPDATE` deadlocks two concurrent turns on one
+      // conversation - each holds KEY SHARE and waits for the other to drop it,
+      // and the loser's whole transaction aborts, leaving the turn `running`
+      // with side effects that were committed outside it and have already paged
+      // on-call. `addMessage` above takes the two locks in this same order.
       //
       // `id` is a Prisma String (TEXT in Postgres), so no ::uuid cast here.
       await tx.$queryRaw`SELECT id FROM conversations WHERE id = ${conversationId} FOR UPDATE`;

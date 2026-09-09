@@ -1,10 +1,15 @@
 <!--
-  SYSTEM PROMPT v1 - support ticket triage
+  SYSTEM PROMPT v5 - support ticket triage
   ============================================================================
   Treated as source code: versioned filename, reviewed in diffs, and every
   non-obvious instruction carries a WHY comment. HTML comments are stripped
   before the prompt is sent (see prompt/index.ts), so they cost no tokens and
   cannot confuse the model - they exist for the next engineer.
+
+  A new version is a new file plus a PROMPT_VERSION bump, so the earlier
+  versions are in `git log src/agent/prompt/` rather than beside this one, and
+  eval/FINDINGS.md records what each bump measured. A `WHY (vN)` tag below
+  means that rule arrived in vN, replacing something that failed.
 
   Design rules for edits:
    - No ticket-specific hacks. If a rule only helps one sample ticket, it is a

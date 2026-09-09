@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.9"
   },
   "scripts": {
     "postinstall": "prisma generate",

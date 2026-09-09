@@ -13,7 +13,7 @@
  * and total: parse arguments, apply the budget, classify.
  *
  * Design note - why prompt rules are not the control: the model is asked to
- * cooperate (see system.v1.md), but a confused or injected model still cannot
+ * cooperate (see prompt/system.v5.md), but a confused or injected model still cannot
  * move money, because `requires_approval` short-circuits before `execute` is
  * ever reached.
  */

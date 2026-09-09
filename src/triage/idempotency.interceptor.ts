@@ -116,40 +116,21 @@ export class IdempotencyInterceptor implements NestInterceptor {
    * so a retry of the same key is answered from that row instead of silently
    * re-running the request.
    *
-   * This used to `delete` the row, on the stated premise that a handler cannot
-   * fail after writing durable rows because "the runner converts every model and
-   * tool failure into a degraded success". The premise was false.
-   * `ConversationService.runTurnFor` commits `conversation.create`,
-   * `agentTurn.create`, and every `side_effects` row (SideEffectsService writes
-   * through `this.prisma`, never a transaction handle) BEFORE and OUTSIDE its
-   * closing transaction - and that transaction can still fail: a lock conflict,
-   * a P2024 pool-acquisition timeout, or a pool closed mid-turn by a deploy.
+   * Terminal, rather than releasing the key, because a handler CAN fail after
+   * writing durable rows: `ConversationService.runTurnFor` commits the
+   * conversation, the turn and every `side_effects` row before and outside its
+   * closing transaction, and that transaction can still fail on a lock
+   * conflict, a pool timeout, or a pool closed mid-turn by a deploy. A released
+   * key lets the retry create a SECOND conversation - a fresh dedup scope for
+   * every conversation-scoped effect, so the same charge becomes a second
+   * pending refund, authorisable by an operator who cannot see the first.
    *
-   * Deleting the key then let the retry create a SECOND conversation, and a new
-   * conversation is a fresh dedup scope for every CONVERSATION-SCOPED effect.
-   * `issue_refund` is the one that hurts: its key is `<customer>:<charge>`, so
-   * the same charge under a second conversation id is a second pending refund,
-   * authorisable by a second operator who cannot see the first one's queue.
-   * (`open_incident` is globally scoped and would still collapse to one
-   * incident - it was the original example here and is no longer the danger.)
-   *
-   * Trade-off, taken knowingly and the opposite way round from before: a client
-   * whose request failed for a purely transient reason - or on a body their own
-   * validator should have caught - must mint a NEW key rather than reuse this
-   * one. That is what a payment API does with a recorded error response, and a
-   * burned key is far cheaper than a duplicate page or a duplicate refund scope.
-   *
-   * It also closes a race by construction rather than by handling it:
-   * `handleExisting`'s `findUniqueOrThrow` used to raise P2025 - surfacing as a
-   * generic 500 - when the winner's error path deleted the row in between.
-   * Nothing deletes the row any more.
-   *
-   * Both halves of that argument have since been built, and this comment is
-   * kept pointing at them rather than at the gap they closed:
-   * `ReconcilerService.sweepIdempotencyKeys` ages a key whose request vanished
-   * into a replayable 503 - so "burned forever" is now "burned until the sweep"
-   * - and `purgeIdempotencyKeys` gives the table a retention window, so it no
-   * longer grows without bound.
+   * Trade-off, taken knowingly: a client whose request failed transiently must
+   * mint a NEW key rather than reuse this one. That is what a payment API does
+   * with a recorded error response, and a burned key is cheaper than a
+   * duplicate refund scope. `ReconcilerService.sweepIdempotencyKeys` ages a key
+   * whose request vanished into a replayable 503, and `purgeIdempotencyKeys`
+   * bounds the table, so "burned forever" is really "burned until the sweep".
    */
   private async recordFailure(key: string, route: string, error: unknown): Promise<void> {
     const { statusCode, response } = failureSnapshot(error);

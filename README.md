@@ -18,7 +18,7 @@ test strategy that does not depend on the model being deterministic.
 
 ## Setup
 
-Requires Node >= 22, pnpm, and Docker.
+Requires Node >= 22.9 (the eval script uses `--env-file-if-exists`), pnpm, and Docker.
 
 ```bash
 cp .env.example .env      # then paste your OPENAI_API_KEY into .env
@@ -400,7 +400,7 @@ plainly English ticket. Both appear at roughly 1 in 30 and neither is fixed by a
 repo. `unstable cases` in the report is the number to watch, and it is why every claim here
 comes from `--repeat`.
 
-Getting here took three prompt versions and four rules in code.
+Getting here took five prompt versions and four rules in code.
 [eval/FINDINGS.md](eval/FINDINGS.md) records what each round measured, including the two rules
 that were wrong on their first attempt and what caught them. Nothing in this table came from a
 single lucky run: `--repeat` exists because a one-off pass on a non-deterministic component is

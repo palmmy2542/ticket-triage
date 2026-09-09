@@ -1,10 +1,15 @@
 /**
  * Prompt assembly.
  *
- * The prompt text lives in `system.v1.md` so it can be reviewed as a document
- * and diffed as code. `PROMPT_VERSION` is stored on every persisted turn, so a
- * decision made six weeks ago can be attributed to the exact prompt that made
- * it - without that, prompt changes are silent, untraceable behaviour changes.
+ * The prompt text lives in `system.<PROMPT_VERSION>.md` so it can be reviewed
+ * as a document and diffed as code. `PROMPT_VERSION` is stored on every
+ * persisted turn, so a decision made six weeks ago can be attributed to the
+ * exact prompt that made it - without that, prompt changes are silent,
+ * untraceable behaviour changes.
+ *
+ * Only the current version is in the working tree. A new version is a new file
+ * and a bump here, so `git log src/agent/prompt/` is the version history
+ * (v1-v5 so far) and eval/FINDINGS.md is what each bump measured.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

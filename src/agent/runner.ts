@@ -465,6 +465,30 @@ async function executeToolCall(input: ExecuteInput): Promise<ToolCallRecord> {
           row.id,
         );
       }
+      if (row.status === 'failed') {
+        // A human approved this and the provider refused it. Without this
+        // branch the fall-through below told the model "filed for approval,
+        // nothing has been executed" about an attempt that was approved and
+        // failed, and recorded it as `pending_approval` - so the decision's
+        // `pending_side_effect_ids` claimed a human still owed a decision they
+        // had already made. `openApprovals` counts `pending_approval` rows in
+        // the database and never agreed with it.
+        return finish(
+          {
+            ok: false,
+            side_effect_id: row.id,
+            error: {
+              code: 'previous_attempt_failed',
+              message:
+                'A human approved this action and it failed downstream. Do not call this tool ' +
+                'again for this item; report the failure and let a human decide.',
+              result: row.result ?? null,
+            },
+          },
+          'failed',
+          row.id,
+        );
+      }
       return finish(
         {
           ok: true,
@@ -920,23 +944,19 @@ export function applyGuards(input: {
   // the model wrote it to describe sending a reply that is now not being sent
   // ("Filed refunds; confirming to the customer"), so it is wrong on its face.
   //
-  // The DRAFT goes only when the demotion is about the prose itself. Round 7
-  // measured what discarding on every demotion costs: the model wrote a Thai
-  // holding reply, refunds were pending, the pending-approval guard demoted the
-  // action and the draft was dropped - so a high-urgency Thai ticket was
-  // answered with silence, which is the exact gap the holding-reply rule exists
-  // to close. Both discarded drafts said a refund had been REQUESTED, which was
-  // true. "A human owes a decision" and "this is too urgent to answer unread"
-  // say nothing about whether the prose can be trusted; `injection_suspected`,
-  // `ungrounded_auto_respond` and `triage_degraded` say exactly that.
+  // The DRAFT goes only when the demotion impugns the prose itself. Discarding
+  // on every demotion cost a high-urgency Thai ticket its holding reply -
+  // refunds were pending, the pending-approval guard demoted the action, and
+  // the customer got silence, which is the gap the holding-reply rule exists to
+  // close. "A human owes a decision" says nothing about whether the prose can
+  // be trusted; `injection_suspected`, `ungrounded_auto_respond` and
+  // `triage_degraded` say exactly that.
   //
-  // A kept draft has to clear the SAME evidence bar as one that goes out
-  // unread. The grounding guards above run only while `next_action` is still
-  // `auto_respond`, so keeping a draft on a procedural demotion first meant
-  // handing an operator prose nothing had checked - and a draft presented as
-  // ready-to-send is still a claim about a customer's account. So the draft
-  // survives only if the demotion was procedural AND `ungroundedReason()` comes
-  // back null; either one failing drops it, and the note says which.
+  // A kept draft still clears the SAME evidence bar as one that goes out
+  // unread - the grounding guards above only run while `next_action` is still
+  // `auto_respond`, and a draft handed over as ready-to-send is still a claim
+  // about a customer's account. So it survives only if the demotion was
+  // procedural AND `ungroundedReason()` is null, and the note says which failed.
   const DRAFT_IMPUGNING: ReadonlyArray<string> = [
     'injection_suspected',
     'ungrounded_auto_respond',
@@ -1037,31 +1057,19 @@ export function applyGuards(input: {
  */
 function isEvidence(record: ToolCallRecord): boolean {
   if (record.status !== 'succeeded') return false;
-  // The allowlist is the whole exclusion, and it is what keeps a SIDE EFFECT
-  // out: `pageIfRegionIsDown` pushes its own `system_rule` open_incident record
-  // into `records` before the guards run, so treating any succeeded call as
-  // evidence let the service manufacture the grounding that licensed the
-  // model's unread reply.
-  //
-  // There used to be a second check here (`policyOutcome === 'system_rule'`)
-  // with a comment claiming both had been probed independently. They had not:
-  // every `system_rule` record today is an open_incident, which this line
-  // already excludes, so the pair masked each other and only one was
-  // load-bearing. Deleted rather than declared - two guards where one does the
-  // work is how a later edit silently removes the one that mattered. If a
-  // deterministic rule is ever given an evidence-shaped tool (a probe that
-  // calls `check_service_status` itself, say), the exclusion has to come back
-  // WITH a probe of its own, because the allowlist will not cover it.
+  // The allowlist is what keeps a SIDE EFFECT out: `pageIfRegionIsDown` pushes
+  // its own open_incident record into `records` before the guards run, so
+  // treating any succeeded call as evidence let the service manufacture the
+  // grounding that licensed the model's unread reply. A deterministic rule
+  // given an evidence-shaped tool would need its own exclusion here.
   if (!EVIDENCE_TOOLS.includes(record.toolName)) return false;
   const result = record.result as { ok?: boolean; result_count?: number } | null;
   if (!result || typeof result !== 'object' || Array.isArray(result) || result.ok !== true) {
     return false;
   }
   // `?? 1` reads "this tool does not report a count", not "assume a hit": only
-  // search-shaped results carry result_count, and EVIDENCE_TOOLS is the closed
-  // list that makes the default safe. An earlier comment here claimed the
-  // generic read gated any future search tool; it did the opposite, because a
-  // tool returning `{ok:true, results:[]}` has no result_count at all.
+  // search-shaped results carry one, and EVIDENCE_TOOLS is the closed list that
+  // makes the default safe.
   return (result.result_count ?? 1) > 0;
 }
 
