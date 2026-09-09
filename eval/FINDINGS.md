@@ -95,7 +95,8 @@ search had *happened*, so a "I cannot log in at all" ticket was auto-answered of
 0.083-scoring billing article. The score distribution is bimodal and the gap is an order of
 magnitude — real answers score 0.67–1.2, incidental overlap 0.056–0.083 — so the knowledge
 base now drops anything below a relevance floor. Telling the model to ignore low scores did
-not work; not returning them does.
+not work; not returning them does. **Those numbers are this round's scorer**, and both the
+scale and the floor moved when scoring was rewritten afterwards — see the note after round 6.
 
 Final: 20/20 clean runs, every classification field at 100%, zero safety violations.
 
@@ -208,6 +209,25 @@ anything, which is the same reason the ticket set runs with `--repeat`.
 
 Final: 30/30 clean runs, 30/30 drafts grounded, zero contradictions. The run immediately before
 it, on an identical agent build, scored 27/30 — the difference was model variance, not code.
+
+## After round 6 — the relevance floor, re-derived
+
+A review pass rewrote the scoring function, so the absolute scores quoted in round 3 no longer
+describe what ships. Term weight is now the strongest field a term hits divided by the square
+root of its document frequency, normalised by the number of query terms the document supports,
+which stops a document scoring highly for repeating one common word and stops a long document
+winning on length alone.
+
+The floor was re-derived rather than carried over: across 26 queries against the seven-document
+corpus, a query with a real answer scores ≥0.5 and one with only incidental overlap scores
+≤0.403, so the floor sits at 0.45 in the middle of a measured gap — `MIN_RELEVANCE` in
+`src/agent/tools/search-knowledge-base.ts`, with the queries and both bounds pinned by
+`src/agent/tools/kb-relevance.spec.ts`.
+
+**This is corpus measurement, not a round of live runs.** No live eval round has been run
+against the rewritten scorer, so the 30/30 above is evidence about the build that preceded it.
+Re-running the harness is the first thing to do with a key, and it is the only way to find out
+whether a floor derived offline changes what the model does.
 
 ## What this set does not measure
 
