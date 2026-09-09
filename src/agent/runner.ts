@@ -852,29 +852,43 @@ export function applyGuards(input: {
     // ordinary misclassification and must be the MOST gated value, not the least.
     'other',
   ];
-  if (nextAction === 'auto_respond') {
+  /**
+   * Why the evidence does not support this reply, or null if it does.
+   *
+   * Extracted so it can be asked TWICE about the same draft, which is the point:
+   * once to decide whether a reply may go out unread, and again about a draft
+   * kept after a procedural demotion. Same bar both times - a draft handed to an
+   * operator as ready-to-send is still a claim about a customer's account, and
+   * "nobody sent it automatically" is not the same as "something verified it".
+   *
+   * Grounding is a relation between the claim and the evidence, not a count of
+   * successful calls: a status probe says nothing about this customer's charges,
+   * so it cannot license "we have refunded the two duplicates".
+   */
+  const ungroundedReason = (): string | null => {
     const groundedInKb = records.some(
       (record) => record.toolName === 'search_knowledge_base' && isEvidence(record),
     );
-    // Routed rather than escalated: it is an unverified answer, not an incident.
     if (GROUNDABLE.includes(base.issue_type) && !groundedInKb) {
-      removedAutoRespond = 'ungrounded_auto_respond';
-      nextAction = 'route_to_specialist';
-      notes.push('ungrounded_auto_respond: no knowledge base result behind the reply');
-    } else if (
+      return 'no knowledge base result behind the reply';
+    }
+    if (
       (base.issue_type === 'billing_dispute' || base.product_area === 'billing') &&
       !records.some((record) => record.toolName === 'get_customer_account' && isEvidence(record))
     ) {
-      // Grounding is a relation between the claim and the evidence, not a count
-      // of successful calls. A status probe says nothing about this customer's
-      // charges, so it cannot license "we have refunded the two duplicates".
+      return 'no account lookup behind a claim about money';
+    }
+    if (!records.some(isEvidence)) return 'no successful tool result behind the reply';
+    return null;
+  };
+
+  if (nextAction === 'auto_respond') {
+    const ungrounded = ungroundedReason();
+    // Routed rather than escalated: it is an unverified answer, not an incident.
+    if (ungrounded) {
       removedAutoRespond = 'ungrounded_auto_respond';
       nextAction = 'route_to_specialist';
-      notes.push('ungrounded_auto_respond: no account lookup behind a claim about money');
-    } else if (!records.some(isEvidence)) {
-      removedAutoRespond = 'ungrounded_auto_respond';
-      nextAction = 'route_to_specialist';
-      notes.push('ungrounded_auto_respond: no successful tool result behind the reply');
+      notes.push(`ungrounded_auto_respond: ${ungrounded}`);
     }
   }
 
@@ -916,11 +930,13 @@ export function applyGuards(input: {
   // say nothing about whether the prose can be trusted; `injection_suspected`,
   // `ungrounded_auto_respond` and `triage_degraded` say exactly that.
   //
-  // What a kept draft is NOT: vetted. The grounding checks run only while
-  // `next_action` is still `auto_respond`, so a draft kept on a procedural
-  // demotion was never checked against the evidence. It reaches a human as a
-  // draft for them to read and send, which is the difference that makes this
-  // safe - and it is why the summary still says no reply went out.
+  // A kept draft has to clear the SAME evidence bar as one that goes out
+  // unread. The grounding guards above run only while `next_action` is still
+  // `auto_respond`, so keeping a draft on a procedural demotion first meant
+  // handing an operator prose nothing had checked - and a draft presented as
+  // ready-to-send is still a claim about a customer's account. So the draft
+  // survives only if the demotion was procedural AND `ungroundedReason()` comes
+  // back null; either one failing drops it, and the note says which.
   const DRAFT_IMPUGNING: ReadonlyArray<string> = [
     'injection_suspected',
     'ungrounded_auto_respond',
@@ -938,7 +954,12 @@ export function applyGuards(input: {
   // which is independent of which action the model picked.
   if ((base.next_action === 'auto_respond' || injection) && nextAction !== 'auto_respond') {
     const reason = removedAutoRespond ?? (injection ? 'injection_suspected' : 'guard_override');
-    const impugned = Boolean(injection) || DRAFT_IMPUGNING.includes(reason);
+    const impugnedByReason = Boolean(injection) || DRAFT_IMPUGNING.includes(reason);
+    // Asked only when the reason itself did not already condemn the draft, so
+    // an injected ticket is never handed a second, softer explanation.
+    const ungroundedDraft = impugnedByReason ? null : ungroundedReason();
+    if (ungroundedDraft) notes.push(`ungrounded_draft: ${ungroundedDraft}`);
+    const impugned = impugnedByReason || ungroundedDraft !== null;
     const draft = base.customer_reply_draft?.trim();
 
     if (impugned) {
@@ -962,14 +983,15 @@ export function applyGuards(input: {
     // order to judge it.
     operatorSummary = impugned
       ? `No automated reply was sent (${reason}). The model's draft was ` +
-        `discarded unsent${draft ? ' and is preserved verbatim in guard_notes' : ''}, and its own ` +
+        `discarded unsent${ungroundedDraft ? ` because ${ungroundedDraft}` : ''}` +
+        `${draft ? ' and is preserved verbatim in guard_notes' : ''}, and its own ` +
         `summary is withheld because it described sending that reply. See rationale for what the ` +
         `model claimed and tools_used for what actually ran.`
       : `No automated reply was sent (${reason}). The model's ` +
         `${draft ? 'draft is kept for a human to review and send' : 'summary is withheld'}` +
-        `, and its own summary is withheld because it described sending that reply. The draft has ` +
-        `NOT been checked against the evidence: the grounding guards only run on a reply that is ` +
-        `going out unread. See rationale for what the model claimed and tools_used for what ran.`;
+        `, and its own summary is withheld because it described sending that reply. The draft ` +
+        `clears the same evidence bar an unread reply would need, which is why it was kept. See ` +
+        `rationale for what the model claimed and tools_used for what actually ran.`;
   }
 
   const toolsUsed: ToolUsed[] = records.map((record) => ({

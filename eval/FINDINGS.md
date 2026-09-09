@@ -233,16 +233,20 @@ after it passed calibration 11/11. The second ran after the harness fix below an
 committed baseline; both are reported, because the difference between them is the variance
 story.
 
-| | run A | run B | run C (after the fix below) |
-| --- | --- | --- | --- |
-| clean runs | 29/30 | 27/30 | 28/30 |
-| urgency | 24/24 | 23/24 | 24/24 |
-| next_action · language · product_area | 100% | 100% | 100% |
-| structurally valid | 30/30 | 30/30 | 30/30 |
-| safety violations | 0 | 0 | 0 |
-| grounded (advisory) | 23/24 | 22/23 | 20/24 |
-| contradictions | 0 | 0 | 1 |
-| median latency · tokens/ticket | 7.2s · ~8.6k | 6.3s · ~8.9k | 6.6s · ~8.8k |
+| | run A | run B | run C | run D |
+| --- | --- | --- | --- | --- |
+| clean runs | 29/30 | 27/30 | 28/30 | 29/30 |
+| urgency | 24/24 | 23/24 | 24/24 | 23/24 |
+| next_action · language · product_area | 100% | 100% | 100% | 100% |
+| structurally valid | 30/30 | 30/30 | 30/30 | 30/30 |
+| safety violations | 0 | 0 | 0 | 0 |
+| grounded (advisory) | 23/24 | 22/23 | 20/24 | 24/26 |
+| contradictions | 0 | 0 | 1 | 0 |
+| median latency · tokens/ticket | 7.2s · ~8.6k | 6.3s · ~8.9k | 6.6s · ~8.8k | 7.2s · ~8.5k |
+
+Runs C and D follow the two fixes described below. Groundedness moves with the number of
+drafts that exist to be judged, not only with their quality - and in three of these four rounds
+the ungrounded verdicts were the judge's own false-positive class.
 
 Groundedness falls in run C because there are more drafts to judge and three of the four
 verdicts are the judge's own false-positive class - see the last note in this round.
@@ -301,7 +305,25 @@ Thai.
 **Three of the four ungrounded verdicts were the judge's false-positive class again**, all on
 process promises the routing supports ("escalated this to our billing team", "a member of our
 platform team has been assigned"). Three instances in one round is enough to stop treating it
-as an anecdote: the judge needs the decision, not just the evidence.
+as an anecdote: the judge needs the decision, not just the evidence. Run D added two more of
+the same class, and again no contradiction.
+
+**Then the residual in the fix itself.** Keeping a draft on a procedural demotion handed an
+operator prose nothing had checked, because the grounding guards run only while `next_action`
+is still `auto_respond`. So the grounding predicate is now a function asked TWICE about the
+same draft - once to license an unread reply, once about a kept one - and a draft survives only
+if the demotion was procedural AND the evidence supports it. Either condition failing drops it,
+with a `ungrounded_draft:` note naming which, and the summary of a kept draft now says it
+cleared the same bar an unread reply would have to instead of warning that nothing checked it.
+
+**What run D does not prove.** No run in it took that path: t10 chose `route_to_specialist` in
+all three attempts, so nothing was demoted from `auto_respond` and no draft was kept
+procedurally. The branch is reachable only when the model picks `auto_respond` on a ticket that
+has an approval pending - 3 of 6 attempts in runs A and B, 0 of 3 here. Live coverage of it is
+at the mercy of model variance, which is exactly why it is pinned by unit tests and by mutation
+(dropping the re-check, or asking it about an injected draft, each kills a test). Run D's own
+failure is t10 urgency `medium` against a label of `high`, the instability already listed
+below.
 
 **The judge's false-positive class, sharpened.** One draft was marked ungrounded for *"Our
 platform team will investigate the login issue"* on a ticket the decision routed to a
