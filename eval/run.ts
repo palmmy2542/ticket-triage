@@ -296,11 +296,23 @@ interface CaseRun {
   language: string;
   requires_human: boolean;
   degraded: boolean;
+  /** Named when routing, so a report can tell "no team" from "wrong team". */
+  specialist_team: string | null;
   tools_used: string[];
   /** Kept in the report because you cannot iterate a prompt you cannot read. */
   rationale: string;
   operator_summary: string;
   customer_reply_draft: string | null;
+  /**
+   * Every guard that fired, INCLUDING the discarded draft it preserves verbatim.
+   *
+   * Without this a run whose whole story is a guard is unreadable from its own
+   * report: a `reply_draft_is_thai` failure looked identical whether the model
+   * wrote no draft or wrote one that the pending-approval guard then discarded -
+   * a model miss and a deliberate server decision, scored the same and
+   * indistinguishable afterwards.
+   */
+  guard_notes: string[];
   /** Advisory groundedness verdict; present only with --judge. */
   judge?: JudgeResult;
   checks: Check[];
@@ -357,10 +369,12 @@ async function runCase(
     language: result.decision.language,
     requires_human: result.decision.requires_human,
     degraded: result.decision.degraded,
+    specialist_team: result.decision.specialist_team,
     tools_used: result.decision.tools_used.map((t) => `${t.name}:${t.status}`),
     rationale: result.decision.rationale,
     operator_summary: result.decision.operator_summary,
     customer_reply_draft: result.decision.customer_reply_draft,
+    guard_notes: result.decision.guard_notes,
     judge: judgement,
     checks,
     passed: checks.filter((c) => c.pass).length,

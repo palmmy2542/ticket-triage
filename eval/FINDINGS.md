@@ -224,10 +224,64 @@ corpus, a query with a real answer scores ≥0.5 and one with only incidental ov
 `src/agent/tools/search-knowledge-base.ts`, with the queries and both bounds pinned by
 `src/agent/tools/kb-relevance.spec.ts`.
 
-**This is corpus measurement, not a round of live runs.** No live eval round has been run
-against the rewritten scorer, so the 30/30 above is evidence about the build that preceded it.
-Re-running the harness is the first thing to do with a key, and it is the only way to find out
-whether a floor derived offline changes what the model does.
+**This was corpus measurement, not a round of live runs** - which round 7 below then ran.
+
+## Round 7 — the first live round on the rewritten retrieval, and a guard that takes back a holding reply
+
+Two consecutive rounds against `gpt-4.1-mini`, 10 cases x 3, groundedness judged by `gpt-4.1`
+after it passed calibration 11/11. The second ran after the harness fix below and is the
+committed baseline; both are reported, because the difference between them is the variance
+story.
+
+| | run A | run B |
+| --- | --- | --- |
+| clean runs | 29/30 | 27/30 |
+| urgency | 24/24 | 23/24 |
+| next_action · language · product_area | 27/27 · 27/27 · 15/15 | 27/27 · 27/27 · 15/15 |
+| structurally valid | 30/30 | 30/30 |
+| safety violations | 0 | 0 |
+| grounded (advisory) | 23/24 | 22/23 |
+| contradictions | 0 | 0 |
+| median latency · tokens/ticket | 7.2s · ~8.6k | 6.3s · ~8.9k |
+
+**What the round existed to answer.** The relevance floor had moved 0.25 -> 0.45 on a rewritten
+scorer with no live evidence behind it. Nothing was auto-answered off an irrelevant article,
+and the three KB-grounded tickets (t3, t4, t6) auto-responded in all six runs - so the floor
+did not cost recall on this set. That is the claim the note above could not make.
+
+**A guard takes back a correct holding reply.** Every non-clean run in both rounds is t10, and
+the recurring failure is `reply_draft_is_thai: no draft` - which turned out not to be a missing
+draft at all. The model chose `auto_respond` with a Thai holding reply, refunds were pending, so
+the `pending_human_approval` guard demoted the action, and the draft-discard rule then dropped
+the reply. Both discarded drafts were accurate:
+
+- *"เราได้ดำเนินการขอคืนเงินสำหรับการตัดเงินซ้ำ 2 ครั้ง…"* — we have **requested** refunds for the two duplicates
+- *"ทางเราได้ยื่นคำขอคืนเงินสำหรับ…"* — we have **submitted** a refund request
+
+Neither says the money moved. So a high-urgency Thai ticket was met with silence, which is the
+exact gap round 3 added the holding-reply rule to close - reached through a different door.
+
+It is not a regression: round 6's baseline shows t10 keeping its draft in all three runs, and
+`escalate_to_human` in one of them, because there the MODEL chose to escalate and the discard
+rule only fires when a GUARD removes `auto_respond`. The mechanism is unchanged; what varies is
+the model's choice, and it chose `auto_respond` on t10 in 3 of 6 runs here. The rule is simply
+too broad: discarding is right when the demotion impugns the prose (`injection_suspected`,
+`ungrounded_auto_respond`), and wrong when the reason is procedural - a human owing a decision
+does not make a holding reply untrustworthy, and a critical ticket is the case that needs one
+most.
+
+**The judge's false-positive class, sharpened.** One draft was marked ungrounded for *"Our
+platform team will investigate the login issue"* on a ticket the decision routed to a
+specialist. The judge gets the evidence and the refund policy but never the decision, so a
+promise about what support will do next has nothing to support it - even though calibration
+case 7 says exactly that promise is grounded. Passing `next_action` and `specialist_team` to
+the judge is the candidate fix, and it is a change to the instrument, so it needs its own
+calibration pass before it is trusted.
+
+**The report could not explain its own failure.** `guard_notes` was not recorded, so "the model
+wrote no draft" and "the server discarded the draft it wrote" scored identically and were
+indistinguishable afterwards - the first analysis of this failure was wrong for exactly that
+reason. The run record now carries `guard_notes` and `specialist_team`.
 
 ## What this set does not measure
 

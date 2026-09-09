@@ -430,8 +430,10 @@ Honest list; the reasoning is in [WRITEUP.md](WRITEUP.md).
   picked (a query with a real answer scores ≥0.5, incidental overlap ≤0.403, so it sits at
   0.45 in the gap) and both bounds are pinned by `src/agent/tools/kb-relevance.spec.ts`. That
   gap is a property of this corpus, so a real one needs re-deriving — and a learned retriever
-  would need no threshold at all. **No live eval round has run against this scorer**: the
-  30/30 in [eval/FINDINGS.md](eval/FINDINGS.md) measures the build before it.
+  would need no threshold at all. Round 7 in [eval/FINDINGS.md](eval/FINDINGS.md) is the first
+  live round behind it: nothing was auto-answered off an irrelevant article, and the three
+  KB-grounded tickets auto-responded in all six runs, so the floor did not cost recall on ten
+  tickets.
 - No authentication, no multi-tenancy, no streaming, no deployment tooling — all explicitly
   out of scope for this exercise.
 - **The reconciler is a `setInterval`, and every replica runs it.** `ReconcilerService`
