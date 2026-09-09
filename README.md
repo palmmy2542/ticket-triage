@@ -140,7 +140,7 @@ HTTP (NestJS on Fastify)         src/triage/     transport, validation, error en
    ├─ SideEffectsService                         state machine over Postgres
    ↓
 Agent core (plain TypeScript)     src/agent/     no NestJS, no Prisma, no HTTP
-   ├─ prompt/system.v4.md                        versioned, commented, comments stripped
+   ├─ prompt/system.v5.md                        versioned, commented, comments stripped
    ├─ schema.ts                                  the decision contract (zod, strict)
    ├─ tools/                                     descriptor = schema + autonomy + dedup + impl
    ├─ policy.ts                                  pure autonomy decision

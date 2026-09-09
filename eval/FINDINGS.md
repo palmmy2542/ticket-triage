@@ -388,6 +388,55 @@ the evidence - a defensible "unsupported". A known-answer case with two variable
 measures neither, so the draft now carries the qualifier and the set has run 13/13 three times
 in a row.
 
+## Round 9 — prompt v5: the rule existed, the example did not
+
+v4 already said the duplicate-count conflation "happens in every language". Every example in
+it was English, and round 7's judge caught the Thai form anyway: *"คุณถูกตัดเงินสำหรับแผน Pro
+ซ้ำ 3 ครั้ง"* on a ticket where two refunds were filed. ซ้ำ ("duplicate") binds onto the total
+3 exactly as "charged three duplicate times" does in English. Writing a rule in one language
+and expecting it to transfer is what failed, so v5 names the forbidden Thai construction and
+gives the correct form beside it.
+
+**What the numbers said.** t10 sixteen times over two batches: 16/16 clean, urgency `high`
+16/16 where it had been flapping to `medium`, zero contradiction verdicts. Two full sets:
+28/30 clean each, zero safety violations, no t10 failure in either.
+
+**What reading the drafts said.** Two of the first eight still opened with the shape - *"ถูก
+เรียกเก็บเงิน...ซ้ำกัน 3 ครั้ง"* and *"เราได้รับเรื่องเรียกเก็บเงินซ้ำ 3 ครั้ง"* - and every
+one of the eight passed every check and was judged grounded. The aggregate was clean while a
+quarter of the drafts carried the defect the round was about. The judge does not catch it
+because the correct number appears in the next clause, and no deterministic check was looking.
+
+So there is one now: `duplicate_count_matches_refunds` compares the number bound to the
+duplicate word against the refunds the run actually filed, in digits or Thai number words. Its
+unit tests are the real drafts, quoted from the report that produced them - a positive per
+construction and the run that got it right.
+
+### The check had a bug, and the check count is what found it
+
+It was gated on a label field (`pending_side_effects.issue_refund`) that t10 - the case it
+exists for - does not declare. The gate never opened, the check never ran, and eight green runs
+said nothing about it. What gave it away was the per-run check count staying at 9 instead of
+10: the same trap as the harness not recording `guard_notes` in round 7, and the second time in
+two rounds that a measurement quietly measured nothing.
+
+It now counts pending refunds from the store, which is the right source anyway: the question is
+whether the draft matches what THIS RUN filed, not what a label predicted. t10 runs 10/10 eight
+times with the check live, and the committed baseline is a full set that has it.
+
+**Honest reading of the rate.** By hand, 2 of 16 t10 runs post-v5 carried the conflation; with
+the check scored, 0 of the last 11. "Much reduced" is what the evidence supports, not
+"eliminated" - and the check is Thai-only, because the English form was fixed in v4 and has not
+recurred in five rounds. Building the English half now would be guessing at a failure that
+stopped happening.
+
+**The two advisory flags in the baseline are neither the routing class nor contradictions.**
+One is the diagnosis class ("our security team is investigating it urgently"). The other is the
+judge reading a word choice literally across languages: the evidence says the region is
+degraded with elevated API error rates, the Thai draft called it a server problem, and the
+judge would not accept the paraphrase. Recorded rather than fixed - it is the instrument being
+strict, not wrong, and a rule loosening it is a change that needs its own calibration.
+
 ## What this set does not measure
 
 - **Whether the judge is right.** The baseline uses a stronger judge than the model being
@@ -400,11 +449,12 @@ in a row.
   rules already there, and the two intermittent behaviours below are exactly what dilution
   would look like. The next round should be a consolidation pass rather than another rule,
   and the eval is what would show whether it cost anything.
-- **Stability at the tails.** Three intermittent behaviours survive everything here: the model
-  occasionally files one refund instead of two on ticket 1, occasionally returns `und` for a
-  plainly English ticket, and occasionally calls all three of ticket 10's charges duplicates
-  while filing two refunds - in Thai, where round 6's English edits did not reach. Roughly 1 in
-  30 each. Catching those reliably needs more runs per
+- **Stability at the tails.** Three intermittent behaviours survive everything here: ticket 1
+  occasionally files NO refund requests at all (twice now, `got 0` against a label of 2),
+  ticket 7 occasionally returns `und` for a plainly English ticket, and ticket 8 occasionally
+  routes where the label wants an escalation. Roughly 1 in 30 each. The Thai duplicate-count
+  conflation was a fourth until v5 and is now measured by
+  `duplicate_count_matches_refunds` rather than left to a judge that did not catch it. Catching those reliably needs more runs per
   change than a take-home can justify.
 - **Ten tickets is a small set.** Hence `--repeat` and a flip rate rather than a single
   accuracy figure, and hence the labels being bands rather than golden strings.

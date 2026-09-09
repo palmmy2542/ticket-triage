@@ -67,6 +67,11 @@ describe('systemPrompt', () => {
     expect(prompt).toContain('`issue_refund` once for each of them'); // file the request
     expect(prompt).toContain('not a substitute for paging'); // page, do not just escalate
     expect(prompt).toContain('Escalating is not free.'); // counter-pressure against over-escalation
+    // v5: the duplicate-count rule had English examples only, and the model
+    // reproduced the forbidden shape in Thai - where the word for "duplicate"
+    // attaches straight onto the total. The counterexample has to exist in the
+    // language the failure happened in.
+    expect(prompt).toContain('ถูกตัดเงินซ้ำ 3 ครั้ง'); // the measured Thai conflation, named
   });
 });
 
