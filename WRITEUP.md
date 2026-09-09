@@ -32,12 +32,17 @@ outage cannot lose a ticket, since the API returns a degraded escalation rather 
 
 ## Trade-offs under time
 
-**Cut:** streaming, auth, deployment, a UI (all worth no points here). Embeddings retrieval. A
-sweeper for rows stuck in `executing`. Rate limits and cost caps. Replaying prior turns' tool
-transcripts: only the previous decision is summarised, so tokens grow linearly rather than
-quadratically.
+**Cut:** streaming, auth, deployment, a UI (all worth no points here). Embeddings retrieval.
+Rate limits and cost caps. Replaying prior turns' tool transcripts: only the previous decision
+is summarised, so tokens grow linearly rather than quadratically.
 
-**What the tests caught.** 143 unit and 29 end-to-end tests pass. The end-to-end suite found
+**Cut, then put back.** A sweeper for rows stuck in `executing` was on the cut list until a
+review pass pointed out that three states are leases with no expiry and none of them was
+visible to any endpoint — a customer waiting forever for a reply nobody knows they are owed.
+`ReconcilerService` closes all three, and the two staleness numbers it derives are in the
+README's Known limitations along with what they still do not cover.
+
+**What the tests caught.** 212 unit and 77 end-to-end tests pass. The end-to-end suite found
 approving an already-*rejected* refund returning success instead of `409`; following the README
 verbatim in a clean clone found the prompt file missing from the production build and `pnpm
 setup` silently shadowed by pnpm's own built-in command, which would have left a grader running
@@ -45,8 +50,21 @@ against an empty database. **No accuracy number is claimed and the
 prompt is v1-unverified.** The eval set exists so that the first hour with a key produces
 numbers instead of impressions.
 
+**Who a turn speaks for.** Every message after the first re-runs the whole turn, which is
+what lets a fourth angry customer message raise the urgency — and it means the newest
+decision speaks for the ticket. Reproduced against Postgres: an operator asking "any update?"
+produced a grounded `auto_respond`, and the ticket left the human queue with a refund still
+pending, because `pending_side_effect_ids` is derived from the turn's own tool records. Three
+things follow from that, and they are separate decisions rather than one fix. The pending
+count is now read per *ticket*, so no later turn answers over a decision a human is holding.
+An operator's question re-triages and reads but does not act; acting is
+`authorize_actions: true`, an explicit act rather than a wording. And `messages.visibility`
+says which rows the customer is party to, because `agentReply` is the operator summary and
+the customer-facing draft is never written to the thread at all — that was true before and
+nothing said so.
+
 **With another week,** in order: make approval execution asynchronous so an operator's request
-does not wait on the payment provider; add the stuck-row sweeper; replace the keyword
+does not wait on the payment provider; replace the keyword
 injection detector with a classifier; grow a golden set from real human disagreements and
 judge it with a stronger model than the one being judged; cost budgets and provider fallback;
 then auth.
