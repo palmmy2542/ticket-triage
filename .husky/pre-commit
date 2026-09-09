@@ -1,0 +1,6 @@
+# Fast checks only. `pnpm test` is the unit project - no database, no API key,
+# no network - and e2e is deliberately absent: it needs Docker and a migrated
+# `triage_test`, which is a `pnpm test:e2e` before pushing, not a per-commit tax.
+pnpm exec lint-staged
+pnpm typecheck
+pnpm test

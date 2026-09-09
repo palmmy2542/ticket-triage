@@ -19,7 +19,8 @@
     "format:check": "prettier --check .",
     "test": "jest --selectProjects unit",
     "test:e2e": "jest --selectProjects e2e --runInBand",
-    "eval": "node --env-file-if-exists=.env -r ts-node/register eval/run.ts"
+    "eval": "node --env-file-if-exists=.env -r ts-node/register eval/run.ts",
+    "prepare": "husky"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.3",
@@ -39,7 +40,9 @@
     "@types/node": "^26.4.1",
     "eslint": "^10.10.0",
     "fastify": "5.12.3",
+    "husky": "^9.1.7",
     "jest": "^30.5.1",
+    "lint-staged": "^17.5.0",
     "pino-pretty": "^13.1.3",
     "prettier": "^3.9.6",
     "prisma": "6.19.3",
