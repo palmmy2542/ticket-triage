@@ -233,16 +233,19 @@ after it passed calibration 11/11. The second ran after the harness fix below an
 committed baseline; both are reported, because the difference between them is the variance
 story.
 
-| | run A | run B |
-| --- | --- | --- |
-| clean runs | 29/30 | 27/30 |
-| urgency | 24/24 | 23/24 |
-| next_action · language · product_area | 27/27 · 27/27 · 15/15 | 27/27 · 27/27 · 15/15 |
-| structurally valid | 30/30 | 30/30 |
-| safety violations | 0 | 0 |
-| grounded (advisory) | 23/24 | 22/23 |
-| contradictions | 0 | 0 |
-| median latency · tokens/ticket | 7.2s · ~8.6k | 6.3s · ~8.9k |
+| | run A | run B | run C (after the fix below) |
+| --- | --- | --- | --- |
+| clean runs | 29/30 | 27/30 | 28/30 |
+| urgency | 24/24 | 23/24 | 24/24 |
+| next_action · language · product_area | 100% | 100% | 100% |
+| structurally valid | 30/30 | 30/30 | 30/30 |
+| safety violations | 0 | 0 | 0 |
+| grounded (advisory) | 23/24 | 22/23 | 20/24 |
+| contradictions | 0 | 0 | 1 |
+| median latency · tokens/ticket | 7.2s · ~8.6k | 6.3s · ~8.9k | 6.6s · ~8.8k |
+
+Groundedness falls in run C because there are more drafts to judge and three of the four
+verdicts are the judge's own false-positive class - see the last note in this round.
 
 **What the round existed to answer.** The relevance floor had moved 0.25 -> 0.45 on a rewritten
 scorer with no live evidence behind it. Nothing was auto-answered off an irrelevant article,
@@ -264,11 +267,41 @@ exact gap round 3 added the holding-reply rule to close - reached through a diff
 It is not a regression: round 6's baseline shows t10 keeping its draft in all three runs, and
 `escalate_to_human` in one of them, because there the MODEL chose to escalate and the discard
 rule only fires when a GUARD removes `auto_respond`. The mechanism is unchanged; what varies is
-the model's choice, and it chose `auto_respond` on t10 in 3 of 6 runs here. The rule is simply
-too broad: discarding is right when the demotion impugns the prose (`injection_suspected`,
-`ungrounded_auto_respond`), and wrong when the reason is procedural - a human owing a decision
-does not make a holding reply untrustworthy, and a critical ticket is the case that needs one
-most.
+the model's choice, and it chose `auto_respond` on t10 in 3 of 6 runs here. The rule was simply
+too broad, and it is now split by reason rather than by outcome:
+
+| the demotion says | the draft | because |
+| --- | --- | --- |
+| `injection_suspected` | discarded | the prose's provenance is the problem |
+| `ungrounded_auto_respond` | discarded | its claims are the problem |
+| `triage_degraded` | discarded | we do not know triage completed at all |
+| `pending_human_approval` | **kept** | a human owing a decision says nothing about the prose |
+| `critical_urgency` | **kept** | the case that needs a holding reply most |
+
+The `operator_summary` is still server-authored on EVERY demotion, kept draft or not: the model
+wrote it to describe sending a reply that is not being sent. And a kept draft is explicitly not
+a vetted one - the grounding guards only run while `next_action` is still `auto_respond`, so
+the summary says in words that the draft has not been checked against the evidence and is
+there for a human to read and send.
+
+**Run C, after the split.** 28/30 clean, every classification field 100%, zero safety
+violations. Exactly one run took the changed path, which is the measurement that matters:
+`t10 #2`, `escalate_to_human` after a pending-approval demotion, Thai draft kept - the shape
+that failed `reply_draft_is_thai` in both earlier runs. The discard still fired six times where
+it should: t5 x3 (`injection_suspected`) and t9 x3 (`ungrounded_auto_respond`).
+
+The two non-clean runs are both independent of the split. `t1 #3` filed one refund instead of
+two - the intermittent behaviour already listed below. `t10 #3` is round 6's duplicate-count
+error recurring in Thai: the model chose `route_to_specialist` itself, so its draft was kept by
+the rule that already existed, and it called all three charges duplicates while filing two
+refunds. The judge caught it as a contradiction, which is the first genuine contradiction any
+round has recorded - a drafting defect the English-only edits of round 6 did not carry into
+Thai.
+
+**Three of the four ungrounded verdicts were the judge's false-positive class again**, all on
+process promises the routing supports ("escalated this to our billing team", "a member of our
+platform team has been assigned"). Three instances in one round is enough to stop treating it
+as an anecdote: the judge needs the decision, not just the evidence.
 
 **The judge's false-positive class, sharpened.** One draft was marked ungrounded for *"Our
 platform team will investigate the login issue"* on a ticket the decision routed to a
@@ -293,9 +326,11 @@ reason. The run record now carries `guard_notes` and `specialist_team`.
   rules already there, and the two intermittent behaviours below are exactly what dilution
   would look like. The next round should be a consolidation pass rather than another rule,
   and the eval is what would show whether it cost anything.
-- **Stability at the tails.** Two intermittent behaviours survive everything here: the model
-  occasionally files no refund requests on ticket 1, and occasionally returns `und` for a
-  plainly English ticket. Roughly 1 in 30 each. Catching those reliably needs more runs per
+- **Stability at the tails.** Three intermittent behaviours survive everything here: the model
+  occasionally files one refund instead of two on ticket 1, occasionally returns `und` for a
+  plainly English ticket, and occasionally calls all three of ticket 10's charges duplicates
+  while filing two refunds - in Thai, where round 6's English edits did not reach. Roughly 1 in
+  30 each. Catching those reliably needs more runs per
   change than a take-home can justify.
 - **Ten tickets is a small set.** Hence `--repeat` and a flip rate rather than a single
   accuracy figure, and hence the labels being bands rather than golden strings.

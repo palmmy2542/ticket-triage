@@ -1195,6 +1195,96 @@ describe('applyGuards', () => {
     expect(decision.guard_notes).toEqual([]);
   });
 
+  it('keeps the draft when a HUMAN owing a decision is why the reply is held', () => {
+    // Round 7, measured: the model wrote a Thai holding reply, two refunds were
+    // pending, the pending-approval guard demoted the action and the discard
+    // rule then dropped the reply - so a high-urgency Thai ticket was answered
+    // with silence. The drafts said a refund had been REQUESTED, which was true.
+    //
+    // "A human owes a decision" says nothing about whether the prose is
+    // trustworthy. It is the case that needs a holding reply most, and the
+    // operator is the one who sends it.
+    const { decision } = guards(
+      {
+        urgency: 'high',
+        issue_type: 'billing_dispute',
+        product_area: 'billing',
+        next_action: 'auto_respond',
+        operator_summary: 'Filed refunds for the two duplicates; confirming to the customer.',
+        customer_reply_draft: 'We have requested refunds for the two duplicate charges.',
+      },
+      [
+        toolRecord({
+          toolName: 'issue_refund',
+          status: 'pending_approval',
+          sideEffectId: 'se_1',
+          result: { ok: true, status: 'pending_approval', side_effect_id: 'se_1' },
+        }),
+      ],
+    );
+
+    expect(decision.next_action).toBe('escalate_to_human');
+    expect(decision.guard_notes.join(' ')).toContain('pending_human_approval');
+    // The reply survives, as a draft.
+    expect(decision.customer_reply_draft).toBe(
+      'We have requested refunds for the two duplicate charges.',
+    );
+    expect(decision.guard_notes.join(' ')).not.toContain('discarded_customer_reply_draft');
+    // The SUMMARY is still server-authored, because the model wrote it to
+    // describe sending that reply and nothing is being sent yet.
+    expect(decision.operator_summary).not.toContain('confirming to the customer');
+    expect(decision.operator_summary).toContain('pending_human_approval');
+    expect(decision.operator_summary).toContain('draft');
+  });
+
+  it('keeps the draft when the ticket is too urgent to answer unread', () => {
+    // Same argument, the other procedural demotion: `critical` never
+    // auto-responds, and a critical ticket is the last one that should be met
+    // with silence while it queues.
+    const { decision } = guards(
+      {
+        urgency: 'critical',
+        issue_type: 'outage',
+        product_area: 'platform',
+        next_action: 'auto_respond',
+        customer_reply_draft: 'We are aware of the outage and are investigating now.',
+      },
+      [toolRecord({ toolName: 'check_service_status', result: { ok: true, region: 'us-east-1' } })],
+    );
+
+    expect(decision.next_action).toBe('escalate_to_human');
+    expect(decision.customer_reply_draft).toBe(
+      'We are aware of the outage and are investigating now.',
+    );
+    expect(decision.guard_notes.join(' ')).not.toContain('discarded_customer_reply_draft');
+    expect(decision.operator_summary).toContain('critical_urgency');
+  });
+
+  it('still discards a draft whose CLAIMS are what failed the guard', () => {
+    // The other side of the split, and the regression guard on it: an
+    // ungrounded reply is one whose assertions nothing looked up. That is a
+    // statement about the prose, so the prose goes - handing it to an operator
+    // as a ready-to-send draft is how an unverified claim reaches a customer
+    // with a human's name on it.
+    const { decision } = guards(
+      {
+        urgency: 'low',
+        issue_type: 'question',
+        product_area: 'ui',
+        next_action: 'auto_respond',
+        customer_reply_draft: 'Dark mode ships in release 5.0.',
+      },
+      [toolRecord({ toolName: 'search_knowledge_base', result: { ok: true, result_count: 0 } })],
+    );
+
+    expect(decision.next_action).toBe('route_to_specialist');
+    expect(decision.customer_reply_draft).toBeNull();
+    expect(decision.guard_notes).toContain(
+      'discarded_customer_reply_draft: Dark mode ships in release 5.0.',
+    );
+    expect(decision.operator_summary).toContain('ungrounded_auto_respond');
+  });
+
   it('discards the draft when a guard is what took auto_respond away', () => {
     // The measured failure: an injected ticket is routed to a human PRECISELY
     // because its draft cannot be trusted, and the operator is then handed that

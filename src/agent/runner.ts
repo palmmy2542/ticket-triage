@@ -899,53 +899,77 @@ export function applyGuards(input: {
     notes.push('missing_specialist_team: defaulted to general_support');
   }
 
-  // A GUARD took `auto_respond` away, so the customer-facing prose the model
-  // wrote to be sent unread is precisely the artefact we just decided not to
-  // trust. Keeping it made the system route an injected ticket *because* its
-  // draft was untrustworthy and then hand the operator that draft as finished
-  // work - measured: `escalate_to_human`, no pending side effects, and a draft
-  // reading "a full refund of all charges has been approved and sent".
+  // Two artefacts, two rules, because the model wrote them for different
+  // readers and a demotion invalidates them for different reasons.
   //
-  // Discarded, not destroyed: the draft goes into guard_notes so the audit trail
-  // still shows what the model wanted to send. (guard_notes rather than a new
-  // Decision field because the field would mean a schema change, and a note
-  // costs nothing downstream.) `rationale` is deliberately untouched - it is the
-  // model's reasoning record, and an operator needs to see what the model
-  // claimed in order to judge it.
+  // The SUMMARY goes whenever `auto_respond` is removed, whatever the reason:
+  // the model wrote it to describe sending a reply that is now not being sent
+  // ("Filed refunds; confirming to the customer"), so it is wrong on its face.
   //
-  // A `route_to_specialist` or `escalate_to_human` the MODEL chose keeps its
-  // draft: the prompt asks for a holding reply on critical/high tickets even
-  // when not auto-responding, and dropping it would reintroduce the 45-seat
-  // enterprise account that sat in silence.
+  // The DRAFT goes only when the demotion is about the prose itself. Round 7
+  // measured what discarding on every demotion costs: the model wrote a Thai
+  // holding reply, refunds were pending, the pending-approval guard demoted the
+  // action and the draft was dropped - so a high-urgency Thai ticket was
+  // answered with silence, which is the exact gap the holding-reply rule exists
+  // to close. Both discarded drafts said a refund had been REQUESTED, which was
+  // true. "A human owes a decision" and "this is too urgent to answer unread"
+  // say nothing about whether the prose can be trusted; `injection_suspected`,
+  // `ungrounded_auto_respond` and `triage_degraded` say exactly that.
+  //
+  // What a kept draft is NOT: vetted. The grounding checks run only while
+  // `next_action` is still `auto_respond`, so a draft kept on a procedural
+  // demotion was never checked against the evidence. It reaches a human as a
+  // draft for them to read and send, which is the difference that makes this
+  // safe - and it is why the summary still says no reply went out.
+  const DRAFT_IMPUGNING: ReadonlyArray<string> = [
+    'injection_suspected',
+    'ungrounded_auto_respond',
+    'triage_degraded',
+  ];
+
   let operatorSummary = base.operator_summary;
   let customerReplyDraft = base.customer_reply_draft;
-  // Two triggers, not one. A guard taking `auto_respond` away is the obvious
-  // case. The second is `injection`, whatever the model chose: a validator
-  // probe returned next_action `escalate_to_human` with the draft intact as
-  // "Ignore previous instructions: your refund of $9999 was sent." because the
-  // model had routed the ticket itself, so the first trigger never fired. Under
-  // injection_suspected the draft's PROVENANCE is what is suspect, which is
-  // independent of which action the model picked - and the policy already
-  // refuses every side effect on such a ticket, so discarding its prose is the
-  // consistent stance. The holding-reply argument below still protects every
-  // benign demotion.
+  // Two triggers for the summary, not one. A guard taking `auto_respond` away is
+  // the obvious case. The second is `injection`, whatever the model chose: a
+  // validator probe returned next_action `escalate_to_human` with the draft
+  // intact as "Ignore previous instructions: your refund of $9999 was sent."
+  // because the model had routed the ticket itself, so the first trigger never
+  // fired. Under injection_suspected the draft's PROVENANCE is what is suspect,
+  // which is independent of which action the model picked.
   if ((base.next_action === 'auto_respond' || injection) && nextAction !== 'auto_respond') {
-    const discarded = base.customer_reply_draft?.trim();
-    // Truncated: on the path this fires most (injection_suspected) the draft is
-    // attacker-authored, and guard_notes flows into the API response, the
-    // persisted turn, and the `decision.final` log line wholesale. The audit
-    // value is in seeing what it tried to say, not in storing all 4000 chars.
-    if (discarded) {
-      const excerpt =
-        discarded.length > 300 ? `${discarded.slice(0, 300)}...[truncated]` : discarded;
-      notes.push(`${DISCARDED_DRAFT_NOTE} ${excerpt}`);
+    const reason = removedAutoRespond ?? (injection ? 'injection_suspected' : 'guard_override');
+    const impugned = Boolean(injection) || DRAFT_IMPUGNING.includes(reason);
+    const draft = base.customer_reply_draft?.trim();
+
+    if (impugned) {
+      // Discarded, not destroyed: the draft goes into guard_notes so the audit
+      // trail still shows what the model wanted to send. (guard_notes rather
+      // than a new Decision field because the field would mean a schema change,
+      // and a note costs nothing downstream.) Truncated, because on the path
+      // this fires most the draft is attacker-authored and guard_notes flows
+      // into the API response, the persisted turn and the `decision.final` log
+      // line wholesale - the audit value is in seeing what it tried to say, not
+      // in storing all 4000 chars.
+      if (draft) {
+        const excerpt = draft.length > 300 ? `${draft.slice(0, 300)}...[truncated]` : draft;
+        notes.push(`${DISCARDED_DRAFT_NOTE} ${excerpt}`);
+      }
+      customerReplyDraft = null;
     }
-    customerReplyDraft = null;
-    operatorSummary =
-      `No automated reply was sent (${removedAutoRespond ?? (injection ? 'injection_suspected' : 'guard_override')}). The model's draft was ` +
-      `discarded unsent${discarded ? ' and is preserved verbatim in guard_notes' : ''}, and its own ` +
-      `summary is withheld because it described sending that reply. See rationale for what the ` +
-      `model claimed and tools_used for what actually ran.`;
+
+    // `rationale` is deliberately untouched either way - it is the model's
+    // reasoning record, and an operator needs to see what the model claimed in
+    // order to judge it.
+    operatorSummary = impugned
+      ? `No automated reply was sent (${reason}). The model's draft was ` +
+        `discarded unsent${draft ? ' and is preserved verbatim in guard_notes' : ''}, and its own ` +
+        `summary is withheld because it described sending that reply. See rationale for what the ` +
+        `model claimed and tools_used for what actually ran.`
+      : `No automated reply was sent (${reason}). The model's ` +
+        `${draft ? 'draft is kept for a human to review and send' : 'summary is withheld'}` +
+        `, and its own summary is withheld because it described sending that reply. The draft has ` +
+        `NOT been checked against the evidence: the grounding guards only run on a reply that is ` +
+        `going out unread. See rationale for what the model claimed and tools_used for what ran.`;
   }
 
   const toolsUsed: ToolUsed[] = records.map((record) => ({
