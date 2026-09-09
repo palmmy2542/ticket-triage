@@ -367,6 +367,10 @@ async function runCase(
         records: result.toolCalls,
         ticket: testCase.messages.map((m) => m.text).join('\n'),
         customer: testCase.customer,
+        decision: {
+          next_action: result.decision.next_action,
+          specialist_team: result.decision.specialist_team,
+        },
       })
     : undefined;
 

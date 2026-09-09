@@ -338,11 +338,63 @@ wrote no draft" and "the server discarded the draft it wrote" scored identically
 indistinguishable afterwards - the first analysis of this failure was wrong for exactly that
 reason. The run record now carries `guard_notes` and `specialist_team`.
 
+## Round 8 — teaching the judge what the service decided
+
+The judge's false-positive class had been measured five times across four rounds: drafts saying
+"our platform team will investigate" or "escalated this to our billing team" were marked
+unsupported on tickets the decision had routed to exactly that team. The evidence says nothing
+about who was assigned, because the routing is not evidence - it is the decision, and the judge
+could not see it. Its own calibration case says a promise about what support will do next is
+grounded, so the instrument disagreed with itself.
+
+`judgeDraft` now receives a `<decision>` block carrying `next_action` and `specialist_team`,
+and one prompt rule saying a draft may name that routing. **`rationale` and `operator_summary`
+stay withheld**, which is the whole design of this instrument: they are the model arguing its
+own case, and a judge that reads them grades the argument instead of the evidence.
+
+Two calibration cases, deliberately a pair - one that the change must make pass and one that it
+must not:
+
+- *"Our platform team will investigate and get back to you"* with a decision routing to
+  `platform` → grounded.
+- *"Our platform team will investigate. The errors are caused by a misconfiguration in your
+  region…"* → ungrounded. Routing licenses a claim about the routing, never a diagnosis.
+
+**Run E: 30/30 clean runs, every classification field 100%, zero safety violations** - the
+first fully clean round on this build. Two advisory verdicts remain, both on t8 and neither of
+the retired class: one calls the ticket "a serious issue potentially affecting data security"
+and one says "our team is aware of issues affecting the platform in your region". Both are
+characterisations the evidence does not establish, on a ticket that escalated with no team
+named - which is the second calibration case doing its job rather than a false positive.
+
+### The calibration set caught two things, and one of them was mine
+
+**My label was wrong, again.** The new case's draft first read "will investigate the login issue
+you are experiencing", and the judge failed it - correctly. Only the TICKET asserts that
+problem, and this prompt tells the judge the ticket is not evidence. Second time in this file
+that the judge was right and the label was wrong; both times the label looked obviously
+correct.
+
+**A case that had passed 11/11 started failing, and it was not the change.** Suspecting my own
+prompt edit, I trimmed it and the case still failed - so I ran the calibration set against the
+judge exactly as committed, with no `<decision>` block at all: it failed there too, 10/11,
+forty minutes after scoring 11/11 on identical input. Same code, same model, temperature 0,
+different verdict. Round 6 recorded that calibration is non-deterministic; this is the cleanest
+instance of it, and it is why a single selftest pass proves nothing.
+
+The case deserved to flap. The article says dark mode is available *on all paid plans* from
+release 4.2 and the draft dropped the qualifier, so it asserted availability more broadly than
+the evidence - a defensible "unsupported". A known-answer case with two variables in it
+measures neither, so the draft now carries the qualifier and the set has run 13/13 three times
+in a row.
+
 ## What this set does not measure
 
-- **Whether the judge is right.** The baseline now uses a stronger judge than the model being
-  judged, at temperature 0, with a calibration set. That is the honest configuration, and it
-  still has a measured false-positive class. A judge is evidence, not proof.
+- **Whether the judge is right.** The baseline uses a stronger judge than the model being
+  judged, at temperature 0, with a calibration set of 13 known answers that it passes. The
+  false-positive class round 8 retired was found in live runs, not in that set - and the set
+  itself has been shown to flap on identical input, so a passing selftest is a floor, not a
+  guarantee. A judge is evidence, not proof.
 - **Prompt growth.** v1 was ~1,300 tokens and v4 is ~2,400. Every round added a rule that
   earned its place against a measured failure, but each also competes for attention with the
   rules already there, and the two intermittent behaviours below are exactly what dilution

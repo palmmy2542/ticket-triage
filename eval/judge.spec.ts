@@ -99,6 +99,12 @@ describe('buildEvidence', () => {
   });
 });
 
+/** What the judge was actually asked, without the standing instructions. */
+const userTurn = (judge: RecordingJudge): string =>
+  judge.requests[0]!.messages.filter((m) => m.role === 'user')
+    .map((m) => ('content' in m ? m.content : ''))
+    .join('\n');
+
 describe('judgeDraft', () => {
   it('shows the judge the draft and the evidence, but never the model rationale', async () => {
     const judge = new RecordingJudge(GROUNDED);
@@ -119,6 +125,43 @@ describe('judgeDraft', () => {
     expect(sent).not.toContain('rationale');
     // No tools: the judge reads evidence, it does not gather more.
     expect(judge.requests[0]!.tools).toEqual([]);
+  });
+
+  it('shows the judge what the service decided, and nothing more of the model', async () => {
+    // Measured five times across four rounds: the judge marked "our platform
+    // team will investigate" unsupported on tickets the decision had routed to
+    // a specialist. It was reading the evidence, which says nothing about who
+    // was assigned, and the routing is not in the evidence - it is the
+    // decision. Its own calibration case says a promise about what support will
+    // do next is grounded, so the instrument disagreed with itself.
+    const judge = new RecordingJudge(GROUNDED);
+    await judgeDraft({
+      llm: judge,
+      draft: 'Our platform team will investigate and get back to you.',
+      records: [KB],
+      ticket: 'I cannot log in.',
+      decision: { next_action: 'route_to_specialist', specialist_team: 'platform' },
+    });
+
+    // The USER turn specifically: the system prompt explains what a <decision>
+    // block is, so asserting over both messages would pass without one.
+    const sent = userTurn(judge);
+    expect(sent).toContain('<decision>');
+    expect(sent).toContain('route_to_specialist');
+    expect(sent).toContain('platform');
+    // Routing only. The rationale and the operator summary stay out for the
+    // same reason as before: they are the model arguing its own case, and a
+    // judge that reads them is grading the argument instead of the evidence.
+    expect(sent).not.toContain('rationale');
+    expect(sent).not.toContain('operator_summary');
+  });
+
+  it('omits the decision block when there is no decision to show', async () => {
+    // `judgeDraft` is also called by the calibration set, where most cases are
+    // a draft and evidence with no routing at all.
+    const judge = new RecordingJudge(GROUNDED);
+    await judgeDraft({ llm: judge, draft: 'x', records: [KB], ticket: 't' });
+    expect(userTurn(judge)).not.toContain('<decision>');
   });
 
   it('asks for a strict schema the provider will accept', async () => {
