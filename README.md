@@ -422,11 +422,16 @@ Honest list; the reasoning is in [WRITEUP.md](WRITEUP.md).
   wants to auto-respond; the detector and the boundary are what stop it. Detection is a
   keyword scan, so it can be phrased around — the guarantee is the autonomy boundary, not the
   detector.
-- **Knowledge base search is lexical, with a hand-picked relevance floor.** The floor
-  separates real answers from incidental word overlap on this seven-document corpus and would
-  need re-deriving on a real one. A learned retriever would not need a magic number.
-- Knowledge base search is lexical token overlap over seven documents, so it does not match
-  synonyms and cannot match a Thai query against English articles.
+- **Knowledge base search is lexical, and its relevance floor is measured on seven
+  documents.** Scoring weights a term by the strongest field it hits over the square root of
+  its document frequency, normalised by the query terms a document supports — so it is not
+  plain token overlap, but it is still lexical: no synonyms, and the Thai ticket matches one
+  article only through the ASCII substring `error 500`. The floor is derived rather than
+  picked (a query with a real answer scores ≥0.5, incidental overlap ≤0.403, so it sits at
+  0.45 in the gap) and both bounds are pinned by `src/agent/tools/kb-relevance.spec.ts`. That
+  gap is a property of this corpus, so a real one needs re-deriving — and a learned retriever
+  would need no threshold at all. **No live eval round has run against this scorer**: the
+  30/30 in [eval/FINDINGS.md](eval/FINDINGS.md) measures the build before it.
 - No authentication, no multi-tenancy, no streaming, no deployment tooling — all explicitly
   out of scope for this exercise.
 - **The reconciler is a `setInterval`, and every replica runs it.** `ReconcilerService`
